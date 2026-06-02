@@ -214,6 +214,9 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                 <a href="database_management.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
                 </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
+                </a>
             </nav>
         </aside>
 
@@ -343,7 +346,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                         </div>
                     </div>
 
-                    <div class="w-full xl:w-[450px] shrink-0 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden no-print xl:sticky xl:top-8 mb-12">
+                    <div class="w-full xl:w-[450px] shrink-0 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden no-print xl:sticky xl:top-8 mb-12 max-h-[calc(100vh-2rem)] flex flex-col">
                         
                         <?php
                             // Calculate Totals for this specific member
@@ -381,7 +384,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                             </div>
                         </div>
 
-                        <div class="p-5 max-h-[60vh] overflow-y-auto flex flex-col gap-4 bg-gray-50">
+                        <div id="transactionHistoryList" class="p-5 flex-1 overflow-y-auto overscroll-contain flex flex-col gap-4 bg-gray-50">
                             <?php if (count($member_transactions) > 0): ?>
                                 <?php foreach($member_transactions as $trans): ?>
                                     <?php 
@@ -404,7 +407,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                                             $type_icon = "<i class='fas fa-shopping-bag text-primary mr-1'></i> <span class='text-primary font-bold uppercase tracking-wider text-[10px]'>Purchase</span>";
                                         }
                                     ?>
-                                    <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden">
+                                    <div class="transaction-card bg-white border border-gray-200 rounded-xl p-4 shadow-sm hover:shadow-md transition-shadow relative overflow-hidden" data-transaction-date="<?= htmlspecialchars($trans['transaction_date']) ?>">
                                         <div class="flex justify-between items-start mb-3 pb-3 border-b border-gray-100">
                                             <div>
                                                 <div class="text-xs text-gray-500 font-bold uppercase mb-1"><i class="far fa-calendar-alt mr-1"></i> <?= date('M d, Y', strtotime($trans['transaction_date'])) ?></div>
@@ -417,7 +420,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                                             <?= $stat_badge ?>
                                         </div>
                                         
-                                        <div class="text-xs text-gray-700 font-mono leading-relaxed mb-4 bg-gray-50 p-2.5 rounded border border-gray-100">
+                                        <div class="text-xs text-gray-700 font-mono leading-relaxed mb-4 bg-gray-50 p-2.5 rounded border border-gray-100 break-words whitespace-normal">
                                             <?= nl2br(htmlspecialchars($trans['items_details'] ?? $t_type)) ?>
                                         </div>
                                         
@@ -457,6 +460,71 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
             sidebar.classList.toggle('-translate-x-full');
             overlay.classList.toggle('hidden');
         }
+
+        function toggleTransactionGroup(panelId, buttonEl) {
+            const panel = document.getElementById(panelId);
+            if (!panel) return;
+
+            const icon = buttonEl ? buttonEl.querySelector('i.fas') : null;
+            const isHidden = panel.classList.contains('hidden');
+            panel.classList.toggle('hidden');
+
+            if (icon) {
+                icon.classList.toggle('fa-chevron-down', isHidden);
+                icon.classList.toggle('fa-chevron-right', !isHidden);
+            }
+        }
+
+        document.addEventListener('DOMContentLoaded', function() {
+            const list = document.getElementById('transactionHistoryList');
+            if (!list) return;
+
+            const cards = Array.from(list.querySelectorAll('.transaction-card'));
+            if (!cards.length) return;
+
+            const groups = new Map();
+            cards.forEach(card => {
+                const dateKey = card.dataset.transactionDate || '';
+                if (!groups.has(dateKey)) {
+                    groups.set(dateKey, []);
+                }
+                groups.get(dateKey).push(card);
+            });
+
+            const sortedDates = Array.from(groups.keys()).sort((a, b) => new Date(b) - new Date(a));
+            list.innerHTML = '';
+
+            sortedDates.forEach((dateKey, index) => {
+                const groupId = `transaction-group-${index + 1}`;
+                const groupWrapper = document.createElement('div');
+                groupWrapper.className = 'bg-white border border-gray-200 rounded-xl shadow-sm overflow-hidden';
+
+                const headerButton = document.createElement('button');
+                headerButton.type = 'button';
+                headerButton.className = 'w-full flex items-center justify-between gap-3 px-4 py-4 text-left bg-gray-50 hover:bg-gray-100 transition-colors';
+                headerButton.innerHTML = `
+                    <div class="flex items-center gap-3 min-w-0">
+                        <i class="fas ${index === 0 ? 'fa-chevron-down' : 'fa-chevron-right'} text-primary text-sm shrink-0"></i>
+                        <span class="font-bold text-gray-800 truncate">${new Intl.DateTimeFormat('en-US', { month: 'long', day: '2-digit', year: 'numeric' }).format(new Date(dateKey + 'T00:00:00'))}</span>
+                    </div>
+                    <span class="text-[10px] font-bold uppercase tracking-wider text-gray-500 shrink-0">${groups.get(dateKey).length} Record${groups.get(dateKey).length > 1 ? 's' : ''}</span>
+                `;
+                headerButton.addEventListener('click', function() {
+                    toggleTransactionGroup(groupId, headerButton);
+                });
+
+                const panel = document.createElement('div');
+                panel.id = groupId;
+                panel.className = index === 0 ? 'p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-4' : 'hidden p-4 bg-gray-50 border-t border-gray-100 flex flex-col gap-4';
+
+                groups.get(dateKey).forEach(card => panel.appendChild(card));
+
+                groupWrapper.appendChild(headerButton);
+                groupWrapper.appendChild(panel);
+                list.appendChild(groupWrapper);
+            });
+        });
+
     </script>
 </body>
 </html>

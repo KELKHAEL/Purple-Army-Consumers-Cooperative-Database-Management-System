@@ -54,6 +54,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         // 4. Process Beneficiaries (if any were added)
         if (!empty($_POST['ben_last_name'])) {
             $stmt_ben = $conn->prepare("INSERT INTO beneficiaries (member_id, last_name, first_name, middle_name, date_of_birth, relationship) VALUES (?, ?, ?, ?, ?, ?)");
+            $beneficiary_count = 0;
             
             // Loop through the dynamically added beneficiaries
             for ($i = 0; $i < count($_POST['ben_last_name']); $i++) {
@@ -67,9 +68,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (!empty($b_last) && !empty($b_first)) {
                     $stmt_ben->bind_param("isssss", $last_inserted_member_id, $b_last, $b_first, $b_middle, $b_dob, $b_rel);
                     $stmt_ben->execute();
+                    $beneficiary_count++;
                 }
             }
             $stmt_ben->close();
+
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'MEMBERS',
+                    'ADD MEMBER',
+                    'MEMBER',
+                    $last_inserted_member_id,
+                    trim($last_name . ', ' . $first_name),
+                    'New member created with ' . $beneficiary_count . ' beneficiary record(s).'
+                );
+            }
+        } elseif (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'MEMBERS',
+                'ADD MEMBER',
+                'MEMBER',
+                $last_inserted_member_id,
+                trim($last_name . ', ' . $first_name),
+                'New member created without beneficiaries.'
+            );
         }
 
         // CRITICAL FIX: Pass the success alert data securely via PHP Session

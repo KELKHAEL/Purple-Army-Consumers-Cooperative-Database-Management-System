@@ -187,6 +187,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     }
 
     // 5. STRICT DB INSERTION
+    $inserted_count = 0;
+    $updated_count = 0;
     foreach ($transactions_to_save as $txn) {
         if (empty($txn['member_name'])) continue;
 
@@ -223,11 +225,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             $upd = $conn->prepare("UPDATE transactions SET member_id=?, items_details=?, payment_status=?, downpayment=?, remaining_balance=?, amount=? WHERE transaction_id=?");
             $upd->bind_param("issdddi", $member_id, $items_str, $txn['status'], $txn['downpayment'], $txn['balance'], $txn['total_amount'], $tid);
             $upd->execute();
+            $updated_count++;
         } else {
             $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
             $ins->bind_param("sissssssdd", $txn['date'], $member_id, $txn['member_name'], $t_type, $txn['total_amount'], $items_str, $txn['invoice'], $txn['status'], $txn['downpayment'], $txn['balance']);
             $ins->execute();
+            $inserted_count++;
         }
+    }
+
+    if (function_exists('logActivity')) {
+        logActivity(
+            $conn,
+            'ADMIN',
+            'IMPORT TRANSACTIONS',
+            'TRANSACTIONS',
+            null,
+            'Bulk Transaction Import',
+            'Inserted ' . $inserted_count . ' transaction row(s) and updated ' . $updated_count . ' existing row(s) from Excel.'
+        );
     }
 
     $_SESSION['alert_title'] = "Transactions Uploaded";

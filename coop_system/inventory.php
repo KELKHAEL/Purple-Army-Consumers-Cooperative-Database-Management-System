@@ -11,62 +11,6 @@ $unit_types = [];
 $res_units = $conn->query("SELECT name FROM config_unit_types ORDER BY name ASC");
 if($res_units) { while($r = $res_units->fetch_assoc()) { $unit_types[] = trim($r['name']); } }
 
-// Process POST Actions Cleanly Separated
-if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    
-    // ACTION 1: DELETE PRODUCT
-    if (isset($_POST['delete_product_id'])) {
-        $del_id = (int)$_POST['delete_product_id'];
-        $conn->query("DELETE FROM inventory WHERE product_id=$del_id");
-        $_SESSION['alert_title'] = "Item Deleted";
-        $_SESSION['alert_message'] = "The product has been permanently removed from the master inventory.";
-        $_SESSION['alert_type'] = "success";
-        header("Location: inventory.php");
-        exit();
-    }
-    
-    // ACTION 2: ADJUST STOCK LEVEL
-    if (isset($_POST['adjust_stock_id'])) {
-        $adj_id = (int)$_POST['adjust_stock_id'];
-        $adj_amount = (int)$_POST['adjust_amount'];
-        $conn->query("UPDATE inventory SET current_quantity = current_quantity + $adj_amount WHERE product_id=$adj_id");
-        $_SESSION['alert_title'] = "Stock Adjusted";
-        $_SESSION['alert_message'] = "The inventory levels have been updated successfully.";
-        $_SESSION['alert_type'] = "success";
-        header("Location: inventory.php");
-        exit();
-    }
-
-    // ACTION 3: ADD OR EDIT PRODUCT DETAILS
-    if (isset($_POST['product_name'])) {
-        $product_name = $conn->real_escape_string(trim($_POST['product_name']));
-        $product_type = $conn->real_escape_string(trim($_POST['product_type']));
-        $quantity_type = $conn->real_escape_string(trim($_POST['quantity_type']));
-        $price = (float)$_POST['price'];
-
-        if (!empty($_POST['product_id'])) {
-            // Edit existing product
-            $id = (int)$_POST['product_id'];
-            $sql = "UPDATE inventory SET product_name='$product_name', product_type='$product_type', quantity_type='$quantity_type', price='$price' WHERE product_id=$id";
-            $conn->query($sql);
-            $_SESSION['alert_title'] = "Item Updated";
-            $_SESSION['alert_message'] = "The product information has been successfully updated.";
-            $_SESSION['alert_type'] = "success";
-        } else {
-            // Add completely new product
-            $current_quantity = (int)$_POST['current_quantity'];
-            $sql = "INSERT INTO inventory (product_name, product_type, quantity_type, current_quantity, price) 
-                    VALUES ('$product_name', '$product_type', '$quantity_type', $current_quantity, '$price')";
-            $conn->query($sql);
-            $_SESSION['alert_title'] = "Item Added";
-            $_SESSION['alert_message'] = "A new product has been successfully added to the master inventory.";
-            $_SESSION['alert_type'] = "success";
-        }
-        header("Location: inventory.php");
-        exit();
-    }
-}
-
 $today = date('Y-m-d');
 
 function inventoryReportDate($value, $fallback, $today) {
@@ -92,6 +36,7 @@ function inventoryReportDateLabel($date) {
 $report_date = inventoryReportDate($_GET['report_date'] ?? ($_GET['report_to'] ?? ($_GET['report_from'] ?? $today)), $today, $today);
 $report_from = $report_date;
 $report_to = $report_date;
+$is_past_date = ($report_date < $today);
 
 $sort_options = [
     'alpha' => 'Product Name (A-Z)',
@@ -103,16 +48,168 @@ if (!isset($sort_options[$report_sort])) {
     $report_sort = 'alpha';
 }
 
+// Daily snapshots ensure historical dates remain accessible later.
+$conn->query("CREATE TABLE IF NOT EXISTS inventory_daily_snapshot (
+    snapshot_date DATE NOT NULL,
+    product_id INT(11) NOT NULL,
+    product_name VARCHAR(255) NOT NULL,
+    product_type VARCHAR(100) NOT NULL,
+    quantity_type VARCHAR(100) NOT NULL,
+    quantity INT(11) NOT NULL DEFAULT 0,
+    price DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    PRIMARY KEY (snapshot_date, product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+// Process POST Actions Cleanly Separated (blocked for past dates)
+if ($_SERVER["REQUEST_METHOD"] == "POST") {
+    if ($is_past_date) {
+        $_SESSION['alert_title'] = "View Only Mode";
+        $_SESSION['alert_message'] = "Inventory for past dates is read-only. Switch to today's date to make changes.";
+        $_SESSION['alert_type'] = "info";
+        header("Location: inventory.php?report_date=" . urlencode($report_date) . "&sort=" . urlencode($report_sort));
+        exit();
+    }
+
+    // ACTION 1: DELETE PRODUCT
+    if (isset($_POST['delete_product_id'])) {
+        $del_id = (int)$_POST['delete_product_id'];
+        $name_row = $conn->query("SELECT product_name, product_type FROM inventory WHERE product_id = $del_id LIMIT 1");
+        $deleted_product = $name_row ? $name_row->fetch_assoc() : null;
+        $conn->query("DELETE FROM inventory WHERE product_id=$del_id");
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'INVENTORY',
+                'DELETE PRODUCT',
+                'PRODUCT',
+                $del_id,
+                $deleted_product['product_name'] ?? '',
+                'Removed product from master inventory. Category: ' . ($deleted_product['product_type'] ?? 'N/A')
+            );
+        }
+        $_SESSION['alert_title'] = "Item Deleted";
+        $_SESSION['alert_message'] = "The product has been permanently removed from the master inventory.";
+        $_SESSION['alert_type'] = "success";
+        header("Location: inventory.php");
+        exit();
+    }
+
+    // ACTION 2: ADJUST STOCK LEVEL
+    if (isset($_POST['adjust_stock_id'])) {
+        $adj_id = (int)$_POST['adjust_stock_id'];
+        $adj_amount = (int)$_POST['adjust_amount'];
+        $name_row = $conn->query("SELECT product_name, current_quantity FROM inventory WHERE product_id = $adj_id LIMIT 1");
+        $product_row = $name_row ? $name_row->fetch_assoc() : null;
+        $conn->query("UPDATE inventory SET current_quantity = current_quantity + $adj_amount WHERE product_id=$adj_id");
+        if (function_exists('logActivity')) {
+            $before_qty = isset($product_row['current_quantity']) ? (int)$product_row['current_quantity'] : null;
+            $after_qty = ($before_qty !== null) ? ($before_qty + $adj_amount) : null;
+            logActivity(
+                $conn,
+                'INVENTORY',
+                'ADJUST STOCK',
+                'PRODUCT',
+                $adj_id,
+                $product_row['product_name'] ?? '',
+                'Adjusted stock by ' . $adj_amount . ' from ' . ($before_qty === null ? 'N/A' : $before_qty) . ' to ' . ($after_qty === null ? 'N/A' : $after_qty)
+            );
+        }
+        $_SESSION['alert_title'] = "Stock Adjusted";
+        $_SESSION['alert_message'] = "The inventory levels have been updated successfully.";
+        $_SESSION['alert_type'] = "success";
+        header("Location: inventory.php");
+        exit();
+    }
+
+    // ACTION 3: ADD OR EDIT PRODUCT DETAILS
+    if (isset($_POST['product_name'])) {
+        $product_name = $conn->real_escape_string(trim($_POST['product_name']));
+        $product_type = $conn->real_escape_string(trim($_POST['product_type']));
+        $quantity_type = $conn->real_escape_string(trim($_POST['quantity_type']));
+        $price = (float)$_POST['price'];
+
+        if (!empty($_POST['product_id'])) {
+            // Edit existing product
+            $id = (int)$_POST['product_id'];
+            $sql = "UPDATE inventory SET product_name='$product_name', product_type='$product_type', quantity_type='$quantity_type', price='$price' WHERE product_id=$id";
+            $conn->query($sql);
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'INVENTORY',
+                    'UPDATE PRODUCT',
+                    'PRODUCT',
+                    $id,
+                    $product_name,
+                    'Updated product details. Category: ' . $product_type . ', Unit: ' . $quantity_type . ', Price: ' . number_format($price, 2)
+                );
+            }
+            $_SESSION['alert_title'] = "Item Updated";
+            $_SESSION['alert_message'] = "The product information has been successfully updated.";
+            $_SESSION['alert_type'] = "success";
+        } else {
+            // Add completely new product
+            $current_quantity = (int)$_POST['current_quantity'];
+            $sql = "INSERT INTO inventory (product_name, product_type, quantity_type, current_quantity, price)
+                    VALUES ('$product_name', '$product_type', '$quantity_type', $current_quantity, '$price')";
+            $conn->query($sql);
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'INVENTORY',
+                    'ADD PRODUCT',
+                    'PRODUCT',
+                    $conn->insert_id,
+                    $product_name,
+                    'Added new product. Category: ' . $product_type . ', Unit: ' . $quantity_type . ', Starting Qty: ' . $current_quantity . ', Price: ' . number_format($price, 2)
+                );
+            }
+            $_SESSION['alert_title'] = "Item Added";
+            $_SESSION['alert_message'] = "A new product has been successfully added to the master inventory.";
+            $_SESSION['alert_type'] = "success";
+        }
+        header("Location: inventory.php");
+        exit();
+    }
+}
+
 if ($report_sort === 'qty_asc') {
-    $order_by = "product_type ASC, current_quantity ASC, product_name ASC";
+    $order_by_live = "product_type ASC, current_quantity ASC, product_name ASC";
+    $order_by_snap = "product_type ASC, quantity ASC, product_name ASC";
 } elseif ($report_sort === 'qty_desc') {
-    $order_by = "product_type ASC, current_quantity DESC, product_name ASC";
+    $order_by_live = "product_type ASC, current_quantity DESC, product_name ASC";
+    $order_by_snap = "product_type ASC, quantity DESC, product_name ASC";
 } else {
-    $order_by = "product_type ASC, product_name ASC";
+    $order_by_live = "product_type ASC, product_name ASC";
+    $order_by_snap = "product_type ASC, product_name ASC";
 }
 
 $inventory_rows = [];
-$inventory_result = $conn->query("SELECT * FROM inventory ORDER BY $order_by");
+$snapshot_missing = false;
+if ($is_past_date) {
+    $check = $conn->query("SELECT COUNT(*) as c FROM inventory_daily_snapshot WHERE snapshot_date = '" . $conn->real_escape_string($report_date) . "'");
+    $count = ($check && ($r = $check->fetch_assoc())) ? (int)$r['c'] : 0;
+    if ($count <= 0) {
+        $snapshot_missing = true;
+    } else {
+        $inventory_result = $conn->query("SELECT product_id, product_name, product_type, quantity_type, quantity AS current_quantity, price FROM inventory_daily_snapshot WHERE snapshot_date = '" . $conn->real_escape_string($report_date) . "' ORDER BY $order_by_snap");
+    }
+} else {
+    // Live inventory
+    $inventory_result = $conn->query("SELECT * FROM inventory ORDER BY $order_by_live");
+
+    // Save today's snapshot automatically so historical reports remain available later.
+    $snap_date = $conn->real_escape_string($report_date);
+    $conn->query("INSERT INTO inventory_daily_snapshot (snapshot_date, product_id, product_name, product_type, quantity_type, quantity, price)
+                  SELECT '$snap_date', product_id, product_name, product_type, quantity_type, current_quantity, price FROM inventory
+                  ON DUPLICATE KEY UPDATE
+                    product_name = VALUES(product_name),
+                    product_type = VALUES(product_type),
+                    quantity_type = VALUES(quantity_type),
+                    quantity = VALUES(quantity),
+                    price = VALUES(price)");
+}
 if ($inventory_result && $inventory_result->num_rows > 0) {
     while ($row = $inventory_result->fetch_assoc()) {
         $inventory_rows[] = $row;
@@ -428,6 +525,29 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         </div>
     </div>
 
+    <div id="deleteModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4 print:hidden">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="closeDeleteModal()"></div>
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md z-10 overflow-hidden transform transition-all">
+            <div class="bg-red-50 px-6 py-4 border-b border-red-100 flex justify-between items-center">
+                <h3 class="font-bold text-red-700"><i class="fas fa-trash-alt mr-2"></i>Delete Product</h3>
+                <button type="button" onclick="closeDeleteModal()" class="text-red-400 hover:text-red-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="p-6">
+                <div class="text-gray-700 font-medium" id="deleteProductName">Are you sure?</div>
+                <p class="text-sm text-gray-500 mt-2 leading-relaxed">This will permanently remove the product from the master inventory. This action cannot be undone.</p>
+            </div>
+            <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3">
+                <button type="button" onclick="closeDeleteModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
+                <form id="deleteProductForm" action="inventory.php" method="POST" class="m-0">
+                    <input type="hidden" name="delete_product_id" id="deleteProductId">
+                    <button type="submit" class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-4 rounded-md text-sm transition-colors shadow-md">
+                        DELETE
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
     <div class="flex h-screen w-full">
 
         <div id="mobile-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-40 hidden md:hidden transition-opacity print:hidden" onclick="toggleSidebar()"></div>
@@ -463,6 +583,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 </a>
                 <a href="database_management.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
+                </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
                 </a>
             </nav>
         </aside>
@@ -515,7 +638,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                         <div class="flex flex-col sm:flex-row sm:items-end gap-3 w-full lg:w-auto">
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Date</label>
-                                <input type="date" name="report_date" value="<?= htmlspecialchars($report_date) ?>" max="<?= htmlspecialchars($today) ?>" class="w-full sm:w-34 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                                <input type="date" name="report_date" value="<?= htmlspecialchars($report_date) ?>" max="<?= htmlspecialchars($today) ?>" onchange="this.form.submit()" class="w-full sm:w-34 rounded-md border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                             </div>
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">Sort</label>
@@ -525,9 +648,11 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                     <?php endforeach; ?>
                                 </select>
                             </div>
-                            <button type="submit" class="bg-gray-800 hover:bg-gray-900 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm whitespace-nowrap">
-                                APPLY
-                            </button>
+                            <?php if ($is_past_date): ?>
+                                <div class="flex items-center h-[38px] px-3 rounded-md border border-amber-200 bg-amber-50 text-amber-800 text-xs font-bold uppercase tracking-wider whitespace-nowrap">
+                                    <i class="fas fa-eye mr-2"></i>View Only
+                                </div>
+                            <?php endif; ?>
                             <div class="flex gap-2">
                                 <button type="submit" name="print" value="1" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm border border-gray-300 whitespace-nowrap">
                                     <i class="fas fa-print mr-1"></i>PRINT
@@ -540,6 +665,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     </div>
                 </form>
 
+                <?php if ($is_past_date && $snapshot_missing): ?>
+                    <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-6 print:hidden">
+                        <div class="font-bold"><i class="fas fa-exclamation-triangle mr-2"></i>No Snapshot For <?= inventoryReportDateLabel($report_date) ?></div>
+                        <div class="text-sm text-amber-800 mt-1">
+                            This system can only show historical inventory reports if a snapshot was saved for that date. Open the inventory page on the day itself (or before changes) to automatically save the snapshot.
+                        </div>
+                    </div>
+                <?php endif; ?>
+
                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 print:hidden">
                     
                     <div class="flex w-full lg:w-1/3 bg-white border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary focus-within:border-primary transition-all shadow-sm">
@@ -548,9 +682,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     </div>
 
                     <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto">
-                        <button onclick="openModal()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
-                            <i class="fas fa-plus mr-2"></i>ADD PRODUCT
-                        </button>
+                        <?php if (!$is_past_date): ?>
+                            <button onclick="openModal()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
+                                <i class="fas fa-plus mr-2"></i>ADD PRODUCT
+                            </button>
+                        <?php else: ?>
+                            <div class="bg-gray-100 text-gray-500 font-semibold py-2 px-4 rounded-md text-sm shadow-sm w-full sm:w-auto text-center border border-gray-200 whitespace-nowrap cursor-not-allowed select-none">
+                                <i class="fas fa-lock mr-2"></i>ADD PRODUCT
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
@@ -610,22 +750,21 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                                 <td class='px-6 py-4'>{$stockBadge}</td>
                                                 <td class='px-6 py-4 text-right print:hidden'>
                                                     
-                                                    <div class='flex justify-end gap-2'>
-                                                        <button onclick='openAdjustModal({$row['product_id']}, \"" . addslashes($row['product_name']) . "\", {$stock})' class='bg-white hover:bg-green-50 text-green-600 border border-green-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Adjust Stock'>
-                                                            <i class='fas fa-plus-minus'></i> STOCK
-                                                        </button>
+                                                    " . ($is_past_date
+                                                        ? "<div class='text-gray-400 text-xs font-semibold inline-flex items-center gap-2'><i class='fas fa-lock'></i> VIEW ONLY</div>"
+                                                        : "<div class='flex justify-end gap-2'>
+                                                            <button type='button' onclick='openAdjustModal(this)' data-id='{$row['product_id']}' data-name='" . htmlspecialchars($row['product_name'], ENT_QUOTES) . "' data-stock='{$stock}' class='bg-white hover:bg-green-50 text-green-600 border border-green-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Adjust Stock'>
+                                                                <i class='fas fa-plus-minus'></i> STOCK
+                                                            </button>
 
-                                                        <button onclick='editProduct({$row['product_id']}, \"" . addslashes($row['product_name']) . "\", \"" . addslashes($row['product_type']) . "\", \"" . addslashes($row['quantity_type']) . "\", {$row['price']})' class='bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Edit Details'>
-                                                            <i class='fas fa-edit'></i> EDIT
-                                                        </button>
+                                                            <button type='button' onclick='editProduct(this)' data-id='{$row['product_id']}' data-name='" . htmlspecialchars($row['product_name'], ENT_QUOTES) . "' data-type='" . htmlspecialchars($row['product_type'], ENT_QUOTES) . "' data-qty-type='" . htmlspecialchars($row['quantity_type'], ENT_QUOTES) . "' data-price='" . htmlspecialchars($row['price'], ENT_QUOTES) . "' class='bg-white hover:bg-blue-50 text-blue-600 border border-blue-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Edit Details'>
+                                                                <i class='fas fa-edit'></i> EDIT
+                                                            </button>
 
-                                                        <form action='inventory.php' method='POST' class='m-0 inline-block' onsubmit='return confirm(\"Are you sure you want to completely delete this product? All logs related to it might lose reference.\");'>
-                                                            <input type='hidden' name='delete_product_id' value='{$row['product_id']}'>
-                                                            <button type='submit' class='bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Delete Product'>
+                                                            <button type='button' onclick='openDeleteModal(this)' data-id='{$row['product_id']}' data-name='" . htmlspecialchars($row['product_name'], ENT_QUOTES) . "' class='bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors' title='Delete Product'>
                                                                 <i class='fas fa-trash-alt'></i>
                                                             </button>
-                                                        </form>
-                                                    </div>
+                                                        </div>") . "
 
                                                 </td>
                                               </tr>";
@@ -730,7 +869,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             document.getElementById('productModal').classList.add('flex');
         }
 
-        function editProduct(id, name, type, qtyType, price) {
+        function editProduct(triggerOrId, name, type, qtyType, price) {
+            let id = triggerOrId;
+            if (triggerOrId && triggerOrId.dataset) {
+                id = triggerOrId.dataset.id;
+                name = triggerOrId.dataset.name;
+                type = triggerOrId.dataset.type;
+                qtyType = triggerOrId.dataset.qtyType;
+                price = triggerOrId.dataset.price;
+            }
             document.getElementById('modalTitle').innerHTML = '<i class="fas fa-edit text-blue-600 mr-2"></i>Edit Product Details';
             document.getElementById('product_id').value = id;
             document.getElementById('product_name').value = name;
@@ -755,7 +902,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         }
 
         // --- STOCK ADJUSTMENT MODAL LOGIC ---
-        function openAdjustModal(id, name, currentStock) {
+        function openAdjustModal(triggerOrId, name, currentStock) {
+            let id = triggerOrId;
+            if (triggerOrId && triggerOrId.dataset) {
+                id = triggerOrId.dataset.id;
+                name = triggerOrId.dataset.name;
+                currentStock = triggerOrId.dataset.stock;
+            }
             document.getElementById('adj_product_id').value = id;
             document.getElementById('adj_product_name_display').innerText = name.toUpperCase();
             document.getElementById('adj_current_stock').innerText = currentStock;
@@ -770,6 +923,24 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         function closeAdjustModal() {
             document.getElementById('adjustModal').classList.add('hidden');
             document.getElementById('adjustModal').classList.remove('flex');
+        }
+
+        // --- DELETE CONFIRMATION MODAL LOGIC ---
+        function openDeleteModal(triggerOrId, name) {
+            let id = triggerOrId;
+            if (triggerOrId && triggerOrId.dataset) {
+                id = triggerOrId.dataset.id;
+                name = triggerOrId.dataset.name;
+            }
+            document.getElementById('deleteProductId').value = id;
+            document.getElementById('deleteProductName').innerText = 'Delete "' + name + '"?';
+            document.getElementById('deleteModal').classList.remove('hidden');
+            document.getElementById('deleteModal').classList.add('flex');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('deleteModal').classList.add('hidden');
+            document.getElementById('deleteModal').classList.remove('flex');
         }
 
         // --- CUSTOM ALERT LOGIC ---

@@ -49,8 +49,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['member_id'])) {
     );
 
     // 3. Execute and Check Member Update
-    if ($stmt->execute()) {
-        $stmt->close();
+        if ($stmt->execute()) {
+            $stmt->close();
 
         // 4. SMART BENEFICIARY SYNCHRONIZATION
         
@@ -109,6 +109,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['member_id'])) {
         }
 
         // 5. Trigger the beautiful Tailwind Success Modal on the dashboard!
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'MEMBERS',
+                'UPDATE MEMBER',
+                'MEMBER',
+                $member_id,
+                trim($last_name . ', ' . $first_name),
+                'Member profile and beneficiary records were updated.'
+            );
+        }
+
         $_SESSION['alert_title'] = "Update Successful";
         $_SESSION['alert_message'] = "The member profile and beneficiaries were successfully updated.";
         $_SESSION['alert_type'] = "success";

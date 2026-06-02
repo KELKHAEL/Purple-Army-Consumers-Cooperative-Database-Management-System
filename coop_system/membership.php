@@ -141,6 +141,9 @@ sort($civil_statuses); // Standard Alphabetical
                 <a href="database_management.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
                 </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
+                </a>
             </nav>
         </aside>
 

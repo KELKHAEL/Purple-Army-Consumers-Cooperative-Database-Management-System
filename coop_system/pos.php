@@ -86,7 +86,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout'])) {
         $stmt_trans = $conn->prepare($sql_trans);
         $stmt_trans->bind_param("sissssssd", $date, $member_id, $buyer_name, $trans_type, $total_cart_amount, $items_details, $receipt, $status, $balance);
         $stmt_trans->execute();
+        $transaction_id = (int)$conn->insert_id;
         $stmt_trans->close();
+
+        if (function_exists('logActivity')) {
+            $item_count = count($cart);
+            $action_label = ($payment === 'Others') ? 'OUTSOURCE CHECKOUT' : 'SALE CHECKOUT';
+            logActivity(
+                $conn,
+                'SALES',
+                $action_label,
+                'TRANSACTION',
+                $transaction_id,
+                $buyer_name,
+                'Payment Method: ' . $payment . ', Items: ' . $item_count . ', Total: ' . number_format($total_cart_amount, 2) . ', Status: ' . $status
+            );
+        }
 
         $checkout_success = true;
     }
@@ -177,6 +192,9 @@ if ($res_units) {
                 </a>
                 <a href="database_management.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
+                </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
                 </a>
             </nav>
         </aside>

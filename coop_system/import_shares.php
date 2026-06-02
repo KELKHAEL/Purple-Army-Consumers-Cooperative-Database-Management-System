@@ -66,6 +66,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     }
 
     // 4. PARSE ROWS & STRICTLY INSERT INTO DB
+    $imported_count = 0;
     for ($i = $start_row; $i < count($rows); $i++) {
         $row = $rows[$i];
         if (!is_array($row)) continue;
@@ -121,7 +122,20 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
             $ins->bind_param("sissssss", $t_date, $member_id, $display_name, $t_type, $amount, $items_details, $invoice, $status);
             $ins->execute();
+            $imported_count++;
         }
+    }
+
+    if (function_exists('logActivity')) {
+        logActivity(
+            $conn,
+            'ADMIN',
+            'IMPORT SHARES',
+            'TRANSACTIONS',
+            null,
+            'Bulk Share / Fee Import',
+            'Imported ' . $imported_count . ' share/fee transaction row(s) from Excel.'
+        );
     }
 
     $_SESSION['alert_title'] = "Shares Uploaded";

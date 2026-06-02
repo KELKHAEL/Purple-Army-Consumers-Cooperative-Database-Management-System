@@ -12,85 +12,155 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Handle Additions
             if ($action === 'add_occ' && !empty($_POST['new_occupation'])) {
                 $stmt = $conn->prepare("INSERT INTO config_occupations (name) VALUES (?)");
-                $stmt->bind_param("s", trim($_POST['new_occupation']));
+                $new_name = trim($_POST['new_occupation']);
+                $stmt->bind_param("s", $new_name);
                 $stmt->execute();
                 $msg = "Occupation successfully added.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD OCCUPATION', 'CONFIG', $conn->insert_id, $new_name, 'Added new occupation setting.');
+                }
             } elseif ($action === 'add_inc' && !empty($_POST['new_income'])) {
                 $stmt = $conn->prepare("INSERT INTO config_monthly_income (name) VALUES (?)");
-                $stmt->bind_param("s", trim($_POST['new_income']));
+                $new_name = trim($_POST['new_income']);
+                $stmt->bind_param("s", $new_name);
                 $stmt->execute();
                 $msg = "Income bracket successfully added.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD INCOME', 'CONFIG', $conn->insert_id, $new_name, 'Added new monthly income setting.');
+                }
             } elseif ($action === 'add_civ' && !empty($_POST['new_civil'])) {
                 $stmt = $conn->prepare("INSERT INTO config_civil_status (name) VALUES (?)");
-                $stmt->bind_param("s", trim($_POST['new_civil']));
+                $new_name = trim($_POST['new_civil']);
+                $stmt->bind_param("s", $new_name);
                 $stmt->execute();
                 $msg = "Civil status successfully added.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD CIVIL STATUS', 'CONFIG', $conn->insert_id, $new_name, 'Added new civil status setting.');
+                }
             } elseif ($action === 'add_cat' && !empty($_POST['new_cat'])) {
                 $stmt = $conn->prepare("INSERT INTO config_product_categories (name) VALUES (?)");
-                $stmt->bind_param("s", trim($_POST['new_cat']));
+                $new_name = trim($_POST['new_cat']);
+                $stmt->bind_param("s", $new_name);
                 $stmt->execute();
                 $msg = "Product category successfully added.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD CATEGORY', 'CONFIG', $conn->insert_id, $new_name, 'Added new product category setting.');
+                }
             } elseif ($action === 'add_unit' && !empty($_POST['new_unit'])) {
                 $stmt = $conn->prepare("INSERT INTO config_unit_types (name) VALUES (?)");
-                $stmt->bind_param("s", trim($_POST['new_unit']));
+                $new_name = trim($_POST['new_unit']);
+                $stmt->bind_param("s", $new_name);
                 $stmt->execute();
                 $msg = "Unit type successfully added.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD UNIT', 'CONFIG', $conn->insert_id, $new_name, 'Added new unit type setting.');
+                }
             }
             
             // Handle Deletions
             elseif ($action === 'del_occ' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_occupations WHERE id = $id")->fetch_assoc();
                 $stmt = $conn->prepare("DELETE FROM config_occupations WHERE id = ?");
-                $stmt->bind_param("i", $_POST['id']);
+                $stmt->bind_param("i", $id);
                 $stmt->execute();
                 $msg = "Occupation removed.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE OCCUPATION', 'CONFIG', $id, $row['name'] ?? '', 'Removed occupation setting.');
+                }
             } elseif ($action === 'del_inc' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_monthly_income WHERE id = $id")->fetch_assoc();
                 $stmt = $conn->prepare("DELETE FROM config_monthly_income WHERE id = ?");
-                $stmt->bind_param("i", $_POST['id']);
+                $stmt->bind_param("i", $id);
                 $stmt->execute();
                 $msg = "Income bracket removed.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE INCOME', 'CONFIG', $id, $row['name'] ?? '', 'Removed monthly income setting.');
+                }
             } elseif ($action === 'del_civ' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_civil_status WHERE id = $id")->fetch_assoc();
                 $stmt = $conn->prepare("DELETE FROM config_civil_status WHERE id = ?");
-                $stmt->bind_param("i", $_POST['id']);
+                $stmt->bind_param("i", $id);
                 $stmt->execute();
                 $msg = "Civil status removed.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE CIVIL STATUS', 'CONFIG', $id, $row['name'] ?? '', 'Removed civil status setting.');
+                }
             } elseif ($action === 'del_cat' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_product_categories WHERE id = $id")->fetch_assoc();
                 $stmt = $conn->prepare("DELETE FROM config_product_categories WHERE id = ?");
-                $stmt->bind_param("i", $_POST['id']);
+                $stmt->bind_param("i", $id);
                 $stmt->execute();
                 $msg = "Product category removed.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE CATEGORY', 'CONFIG', $id, $row['name'] ?? '', 'Removed product category setting.');
+                }
             } elseif ($action === 'del_unit' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_unit_types WHERE id = $id")->fetch_assoc();
                 $stmt = $conn->prepare("DELETE FROM config_unit_types WHERE id = ?");
-                $stmt->bind_param("i", $_POST['id']);
+                $stmt->bind_param("i", $id);
                 $stmt->execute();
                 $msg = "Unit type removed.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE UNIT', 'CONFIG', $id, $row['name'] ?? '', 'Removed unit type setting.');
+                }
             }
 
             // Handle Edits (Updates)
             elseif ($action === 'edit_occ' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_occupations SET name = ? WHERE id = ?");
-                $stmt->bind_param("si", trim($_POST['edit_name']), $_POST['id']);
+                $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Occupation updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT OCCUPATION', 'CONFIG', $id, $new_name, 'Updated occupation setting.');
+                }
             } elseif ($action === 'edit_inc' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_monthly_income SET name = ? WHERE id = ?");
-                $stmt->bind_param("si", trim($_POST['edit_name']), $_POST['id']);
+                $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Income bracket updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT INCOME', 'CONFIG', $id, $new_name, 'Updated monthly income setting.');
+                }
             } elseif ($action === 'edit_civ' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_civil_status SET name = ? WHERE id = ?");
-                $stmt->bind_param("si", trim($_POST['edit_name']), $_POST['id']);
+                $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Civil status updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT CIVIL STATUS', 'CONFIG', $id, $new_name, 'Updated civil status setting.');
+                }
             } elseif ($action === 'edit_cat' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_product_categories SET name = ? WHERE id = ?");
-                $stmt->bind_param("si", trim($_POST['edit_name']), $_POST['id']);
+                $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Product category updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT CATEGORY', 'CONFIG', $id, $new_name, 'Updated product category setting.');
+                }
             } elseif ($action === 'edit_unit' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_unit_types SET name = ? WHERE id = ?");
-                $stmt->bind_param("si", trim($_POST['edit_name']), $_POST['id']);
+                $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Unit type updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT UNIT', 'CONFIG', $id, $new_name, 'Updated unit type setting.');
+                }
             }
             
             // Handle Inventory Settings Toggle
@@ -100,6 +170,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 $stmt->bind_param("s", $allow_neg);
                 $stmt->execute();
                 $msg = "Inventory permissions updated successfully.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', 'Allow negative stock set to ' . $allow_neg . '.');
+                }
             }
 
             if ($msg !== "") {
@@ -223,6 +296,9 @@ if ($setting_res && $setting_res->num_rows > 0) {
                 </a>
                 <a href="database_management.php" class="flex items-center px-6 py-3 bg-primary text-white font-semibold border-l-4 border-primaryDark">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
+                </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
                 </a>
             </nav>
         </aside>

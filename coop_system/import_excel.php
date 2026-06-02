@@ -182,6 +182,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     $last_inserted_member_id = null;
 
     // Loop through Excel Rows
+    $members_inserted = 0;
+    $members_updated = 0;
+    $beneficiaries_inserted = 0;
+    $beneficiaries_updated = 0;
     for ($i = $start_row; $i < count($rows); $i++) {
         $row = $rows[$i];
         if (!is_array($row)) continue;
@@ -298,6 +302,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                     $update_stmt->bind_param($types, ...$update_params);
                     $update_stmt->execute();
                     $update_stmt->close();
+                    $members_updated++;
                 }
                 
             } else {
@@ -308,6 +313,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 
                 $last_inserted_member_id = $stmt->insert_id;
                 $stmt->close();
+                $members_inserted++;
             }
         }
 
@@ -334,6 +340,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                     $upd_b->bind_param("si", $ben_dob, $ben_id_to_update);
                     $upd_b->execute();
                     $upd_b->close();
+                    $beneficiaries_updated++;
                 }
             } else {
                 // Insert new beneficiary
@@ -341,9 +348,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $stmt_ben->bind_param("isssss", $last_inserted_member_id, $ben_last, $ben_first, $ben_middle, $ben_dob, $ben_rel);
                 $stmt_ben->execute();
                 $stmt_ben->close();
+                $beneficiaries_inserted++;
             }
             $b_check->close();
         }
+    }
+
+    if (function_exists('logActivity')) {
+        logActivity(
+            $conn,
+            'ADMIN',
+            'IMPORT MEMBERS',
+            'MEMBERS',
+            null,
+            'Bulk Member Import',
+            'Inserted ' . $members_inserted . ' member record(s), updated ' . $members_updated . ' member record(s), inserted ' . $beneficiaries_inserted . ' beneficiary record(s), and updated ' . $beneficiaries_updated . ' beneficiary record(s).'
+        );
     }
 
     // Trigger the beautiful Tailwind Success Modal on the dashboard!

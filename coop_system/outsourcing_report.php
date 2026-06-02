@@ -119,6 +119,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['finalize_outsource_pay
     $_SESSION['alert_title'] = "Transaction Completed";
     $_SESSION['alert_message'] = "The outsourced transaction has been marked as <strong>COMPLETED</strong> and the reference/invoice number was saved.";
     $_SESSION['alert_type'] = "success";
+    if (function_exists('logActivity')) {
+        logActivity(
+            $conn,
+            'SALES',
+            'FINALIZE OUTSOURCE PAYMENT',
+            'TRANSACTION',
+            $transaction_id,
+            $_SESSION['ref_event_name'] ?? '',
+            'Reference/Invoice #' . $reference_no . ' saved and transaction marked completed.'
+        );
+    }
     unset($_SESSION['show_ref_modal'], $_SESSION['ref_transaction_id'], $_SESSION['ref_event_name'], $_SESSION['ref_event_date']);
     header("Location: outsourcing_report.php");
     exit();
@@ -199,6 +210,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['reconcile_record_id'])
         $_SESSION['alert_title'] = "Event Reconciled";
         $_SESSION['alert_message'] = "Stock has been successfully reconciled! <strong>{$qty_returned} items</strong> were returned to the master inventory.";
         $_SESSION['alert_type'] = "success";
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'INVENTORY',
+                'RECONCILE OUTSOURCE',
+                'OUTSOURCING RECORD',
+                $rec_id,
+                $event_name,
+                'Product ID ' . $prod_id . ', Sold: ' . $qty_sold . ', Returned: ' . $qty_returned . ', Method: ' . $payment_method
+            );
+        }
 
         if ($payment_method === 'Others' && !$should_prompt_reference) {
             // We reconciled, but can't link to a pending outsourced transaction.
@@ -282,6 +304,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['receive_pay_later_paym
             $_SESSION['alert_title'] = "Downpayment Recorded";
             $_SESSION['alert_message'] = "This transaction will be marked as a downpayment. The invoice number or reference number will be added once the remaining balance has been fully paid.";
             $_SESSION['alert_type'] = "info";
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'SALES',
+                    'RECORD PAY LATER DOWNPAYMENT',
+                    'TRANSACTION',
+                    $transaction_id,
+                    $row['member_name'] ?? ($_SESSION['paylater_member_name'] ?? ''),
+                    'Payment received: ' . number_format($apply, 2) . ', Remaining balance: ' . number_format($new_remaining, 2)
+                );
+            }
         } else {
             if ($reference_no === '') {
                 $_SESSION['alert_title'] = "Missing Reference";
@@ -301,6 +334,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['receive_pay_later_paym
             $_SESSION['alert_title'] = "Payment Completed";
             $_SESSION['alert_message'] = "Transaction marked as <strong>COMPLETED</strong> and reference/invoice saved.";
             $_SESSION['alert_type'] = "success";
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'SALES',
+                    'COMPLETE PAY LATER PAYMENT',
+                    'TRANSACTION',
+                    $transaction_id,
+                    $row['member_name'] ?? ($_SESSION['paylater_member_name'] ?? ''),
+                    'Payment received: ' . number_format($apply, 2) . ', Reference/Invoice #' . $reference_no . ' saved.'
+                );
+            }
         }
 
         $conn->commit();
@@ -708,6 +752,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 </a>
                 <a href="database_management.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-database w-6"></i> DATABASE SETTINGS
+                </a>
+                <a href="activity_logs.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
+                    <i class="fas fa-clock-rotate-left w-6"></i> ACTIVITY LOGS
                 </a>
             </nav>
         </aside>
