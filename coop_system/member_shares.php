@@ -2,15 +2,165 @@
 session_start();
 include 'db.php'; 
 
+// Fetch active members and configurable payment types.
+$members = [];
+$mem_list = $conn->query("SELECT member_id, last_name, first_name, middle_name FROM members ORDER BY last_name ASC, first_name ASC");
+if ($mem_list) {
+    while ($m = $mem_list->fetch_assoc()) {
+        $members[] = $m;
+    }
+}
+
+$share_payment_types = function_exists('getSharePaymentTypes') ? getSharePaymentTypes($conn, true) : [];
+if (empty($share_payment_types) && function_exists('getSharePaymentTypes')) {
+    $share_payment_types = getSharePaymentTypes($conn, false);
+}
+
+// Handle manual share entry.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) {
+    $member_id = (int)($_POST['member_id'] ?? 0);
+    $share_type_id = (int)($_POST['share_payment_type_id'] ?? 0);
+    $amount = (float)($_POST['amount'] ?? 0);
+    $share_date = !empty($_POST['share_date']) ? $_POST['share_date'] : date('Y-m-d');
+
+    $stmt_member = $conn->prepare("SELECT last_name, first_name, middle_name FROM members WHERE member_id = ? LIMIT 1");
+    $stmt_member->bind_param("i", $member_id);
+    $stmt_member->execute();
+    $member_res = $stmt_member->get_result();
+    $member_row = $member_res ? $member_res->fetch_assoc() : null;
+    $stmt_member->close();
+
+    $stmt_type = $conn->prepare("SELECT id, name FROM config_share_payment_types WHERE id = ? AND is_active = 1 LIMIT 1");
+    $stmt_type->bind_param("i", $share_type_id);
+    $stmt_type->execute();
+    $type_res = $stmt_type->get_result();
+    $type_row = $type_res ? $type_res->fetch_assoc() : null;
+    $stmt_type->close();
+
+    if (!$member_row || !$type_row || $amount <= 0 || empty($share_date)) {
+        $_SESSION['alert_title'] = "Invalid Entry";
+        $_SESSION['alert_message'] = "Please select a member, payment type, and enter a valid amount.";
+        $_SESSION['alert_type'] = "error";
+        header("Location: member_shares.php");
+        exit();
+    }
+
+    $member_name = trim($member_row['last_name'] . ', ' . $member_row['first_name'] . ' ' . ($member_row['middle_name'] ?? ''));
+    $member_name = preg_replace('/\s+/', ' ', trim($member_name));
+    $invoice_no = 'SHR-MAN-' . strtoupper(substr(md5(uniqid((string)mt_rand(), true)), 0, 8));
+    $items_details = 'Manual payment entry for ' . $type_row['name'];
+    $payment_status = 'COMPLETED';
+    $share_payment_type_id = (int)$type_row['id'];
+    $transaction_type = $type_row['name'];
+
+    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
+    $stmt->bind_param("sissidsss", $share_date, $member_id, $member_name, $transaction_type, $share_payment_type_id, $amount, $items_details, $invoice_no, $payment_status);
+
+    if ($stmt->execute()) {
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'SALES',
+                'ADD MEMBER SHARE',
+                'TRANSACTION',
+                $conn->insert_id,
+                $member_name,
+                'Payment Type: ' . $type_row['name'] . ', Amount: ' . number_format($amount, 2) . ', Date: ' . $share_date
+            );
+        }
+        $_SESSION['alert_title'] = "Share Added";
+        $_SESSION['alert_message'] = "The member share record was saved successfully.";
+        $_SESSION['alert_type'] = "success";
+    } else {
+        $_SESSION['alert_title'] = "Database Error";
+        $_SESSION['alert_message'] = "Unable to save the member share record.";
+        $_SESSION['alert_type'] = "error";
+    }
+    $stmt->close();
+
+    header("Location: member_shares.php");
+    exit();
+}
+
+$share_rows = [];
+$share_sql = "SELECT t.*, COALESCE(pt.name, t.transaction_type) AS share_type_name
+              FROM transactions t
+              LEFT JOIN config_share_payment_types pt ON t.share_payment_type_id = pt.id
+              WHERE t.share_payment_type_id IS NOT NULL
+                 OR t.transaction_type IN ('Share Capital', 'Membership Fee', 'SHARE')
+              ORDER BY t.transaction_date DESC, t.transaction_id DESC";
+$share_result = $conn->query($share_sql);
+if ($share_result) {
+    while ($row = $share_result->fetch_assoc()) {
+        $share_rows[] = $row;
+    }
+}
+
 // Fetch Dashboard Stats specifically for Shares and Membership Fees
-$cap_res = $conn->query("SELECT SUM(amount) as total FROM transactions WHERE transaction_type IN ('Share Capital', 'SHARE') AND payment_status = 'COMPLETED'");
-$total_share_capital = $cap_res ? (float)$cap_res->fetch_assoc()['total'] : 0;
+$total_share_capital = 0;
+$total_membership_fees = 0;
+$contributors = [];
+foreach ($share_rows as $row) {
+    $display_type = strtolower((string)($row['share_type_name'] ?? $row['transaction_type'] ?? ''));
+    $status = strtolower((string)($row['payment_status'] ?? ''));
+    if ($status === 'completed' || strpos($status, 'paid') !== false) {
+        if (strpos($display_type, 'share') !== false) {
+            $total_share_capital += (float)$row['amount'];
+        } elseif (strpos($display_type, 'fee') !== false) {
+            $total_membership_fees += (float)$row['amount'];
+        }
+    }
+    if (!empty($row['member_id'])) {
+        $contributors[(int)$row['member_id']] = true;
+    }
+}
 
-$fee_res = $conn->query("SELECT SUM(amount) as total FROM transactions WHERE transaction_type = 'Membership Fee' AND payment_status = 'COMPLETED'");
-$total_membership_fees = $fee_res ? (float)$fee_res->fetch_assoc()['total'] : 0;
+$total_contributors = count($contributors);
 
-$mem_res = $conn->query("SELECT COUNT(DISTINCT member_id) as total FROM transactions WHERE transaction_type IN ('Share Capital', 'Membership Fee', 'SHARE') AND member_id IS NOT NULL");
-$total_contributors = $mem_res ? (int)$mem_res->fetch_assoc()['total'] : 0;
+if (isset($_GET['export']) && $_GET['export'] === 'excel') {
+    require_once __DIR__ . '/vendor/autoload.php';
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Member Shares');
+
+    $sheet->mergeCells('A1:F1');
+    $sheet->mergeCells('A2:F2');
+    $sheet->setCellValue('A1', 'Member Shares & Fees');
+    $sheet->setCellValue('A2', 'Exported: ' . date('F d, Y h:i A'));
+    $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+    $sheet->getStyle('A1:A2')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+    $sheet->getStyle('A:F')->getFont()->setName('Arial')->setSize(12);
+
+    $headers = ['Date', 'Ref / Invoice', 'Member Name', 'Transaction Type', 'Amount (PHP)', 'Status'];
+    $sheet->fromArray($headers, null, 'A4');
+    $sheet->getStyle('A4:F4')->getFont()->setBold(true);
+    $sheet->getStyle('A4:F4')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3E8FF');
+
+    $row_num = 5;
+    foreach ($share_rows as $row) {
+        $sheet->setCellValue("A{$row_num}", $row['transaction_date']);
+        $sheet->setCellValue("B{$row_num}", $row['invoice_no'] ?: 'N/A');
+        $sheet->setCellValue("C{$row_num}", $row['member_name']);
+        $sheet->setCellValue("D{$row_num}", $row['share_type_name'] ?? $row['transaction_type']);
+        $sheet->setCellValue("E{$row_num}", (float)$row['amount']);
+        $sheet->setCellValue("F{$row_num}", $row['payment_status'] ?: 'COMPLETED');
+        $row_num++;
+    }
+
+    $sheet->getStyle("E5:E{$row_num}")->getNumberFormat()->setFormatCode('#,##0.00');
+    foreach (range('A', 'F') as $column) {
+        $sheet->getColumnDimension($column)->setAutoSize(true);
+    }
+
+    $filename = 'Member_Shares_' . date('Y-m-d') . '.xlsx';
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment;filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->save('php://output');
+    exit();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -49,6 +199,51 @@ $total_contributors = $mem_res ? (int)$mem_res->fetch_assoc()['total'] : 0;
             <div class="bg-gray-50 px-6 py-4 flex justify-end">
                 <button id="customAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
             </div>
+        </div>
+    </div>
+
+    <div id="shareModal" class="fixed inset-0 z-[999] hidden items-center justify-center p-4 print:hidden">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="closeShareModal()"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg z-10 overflow-hidden transform transition-all">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <h3 class="font-bold text-gray-800"><i class="fas fa-plus-circle text-primary mr-2"></i>Add Member Share</h3>
+                <button type="button" onclick="closeShareModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            <form action="member_shares.php" method="POST" class="p-6 space-y-4">
+                <input type="hidden" name="add_share_record" value="1">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Member <span class="text-red-500">*</span></label>
+                    <select name="member_id" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <option value="" selected disabled>Select Member</option>
+                        <?php foreach ($members as $member): ?>
+                            <option value="<?= (int)$member['member_id'] ?>"><?= htmlspecialchars(trim($member['last_name'] . ', ' . $member['first_name'] . ' ' . ($member['middle_name'] ?? ''))) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Payment Type <span class="text-red-500">*</span></label>
+                    <select name="share_payment_type_id" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <option value="" selected disabled>Select Payment Type</option>
+                        <?php foreach ($share_payment_types as $type): ?>
+                            <option value="<?= (int)$type['id'] ?>"><?= htmlspecialchars($type['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Amount <span class="text-red-500">*</span></label>
+                        <input type="number" name="amount" step="0.01" min="0.01" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Date <span class="text-red-500">*</span></label>
+                        <input type="date" name="share_date" value="<?= htmlspecialchars(date('Y-m-d')) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-2">
+                    <button type="button" onclick="closeShareModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
+                    <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-md text-sm transition-colors shadow-md">SAVE SHARE</button>
+                </div>
+            </form>
         </div>
     </div>
 
@@ -145,7 +340,15 @@ $total_contributors = $mem_res ? (int)$mem_res->fetch_assoc()['total'] : 0;
                             <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
                             <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD SHARES</button>
                         </form>
-                        
+
+                        <button type="button" onclick="openShareModal()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap">
+                            <i class="fas fa-plus mr-2"></i>ADD MEMBER SHARE
+                        </button>
+
+                        <a href="member_shares.php?export=excel" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap text-center">
+                            <i class="fas fa-file-excel mr-2"></i>EXPORT
+                        </a>
+
                         <button onclick="window.print()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm border border-gray-300 w-full sm:w-auto whitespace-nowrap">
                             <i class="fas fa-print mr-2"></i>PRINT REPORT
                         </button>
@@ -171,23 +374,20 @@ $total_contributors = $mem_res ? (int)$mem_res->fetch_assoc()['total'] : 0;
                             <tbody class="divide-y divide-gray-100" id="sharesTableBody">
                                 <?php
                                 try {
-                                    $sql = "SELECT * FROM transactions WHERE transaction_type IN ('Share Capital', 'Membership Fee', 'SHARE') ORDER BY transaction_date DESC, transaction_id DESC";
-                                    $result = $conn->query($sql);
-
-                                    if ($result && $result->num_rows > 0) {
-                                        while($row = $result->fetch_assoc()) {
-                                            
+                                    if (!empty($share_rows)) {
+                                        foreach ($share_rows as $row) {
                                             $date = date('M d, Y', strtotime($row['transaction_date']));
                                             $inv = !empty($row['invoice_no']) ? htmlspecialchars($row['invoice_no']) : 'N/A';
-                                            $type = htmlspecialchars($row['transaction_type']);
-                                            
-                                            // Make "Share Capital" look distinct from "Membership Fee"
+                                            $type = htmlspecialchars($row['share_type_name'] ?? $row['transaction_type']);
+
                                             if (stripos($type, 'share') !== false) {
-                                                $type_badge = "<span class='text-green-700 font-bold'><i class='fas fa-chart-pie mr-1 opacity-50'></i> Share Capital</span>";
+                                                $type_badge = "<span class='text-green-700 font-bold'><i class='fas fa-chart-pie mr-1 opacity-50'></i> {$type}</span>";
+                                            } elseif (stripos($type, 'fee') !== false) {
+                                                $type_badge = "<span class='text-blue-700 font-bold'><i class='fas fa-id-card mr-1 opacity-50'></i> {$type}</span>";
                                             } else {
-                                                $type_badge = "<span class='text-blue-700 font-bold'><i class='fas fa-id-card mr-1 opacity-50'></i> Membership Fee</span>";
+                                                $type_badge = "<span class='text-gray-700 font-bold'><i class='fas fa-tag mr-1 opacity-50'></i> {$type}</span>";
                                             }
-                                            
+
                                             $status = !empty($row['payment_status']) ? htmlspecialchars($row['payment_status']) : 'COMPLETED';
                                             if (stripos($status, 'paid') !== false || stripos($status, 'completed') !== false) {
                                                 $stat_badge = "<span class='bg-green-100 text-green-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-green-200'>$status</span>";
@@ -226,6 +426,16 @@ $total_contributors = $mem_res ? (int)$mem_res->fetch_assoc()['total'] : 0;
             const overlay = document.getElementById('mobile-overlay');
             sidebar.classList.toggle('-translate-x-full');
             overlay.classList.toggle('hidden');
+        }
+
+        function openShareModal() {
+            document.getElementById('shareModal').classList.remove('hidden');
+            document.getElementById('shareModal').classList.add('flex');
+        }
+
+        function closeShareModal() {
+            document.getElementById('shareModal').classList.add('hidden');
+            document.getElementById('shareModal').classList.remove('flex');
         }
 
         // --- LIVE SEARCH LOGIC ---

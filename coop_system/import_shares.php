@@ -105,8 +105,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         }
         $stmt->close();
 
-        // Format the transaction
-        $t_type = (stripos($type, 'share') !== false) ? 'Share Capital' : 'Membership Fee';
+        // Format the transaction using configurable share payment types.
+        $resolved_type = function_exists('resolveSharePaymentType') ? resolveSharePaymentType($conn, $type) : null;
+        $t_type = $resolved_type['name'] ?? ((stripos($type, 'share') !== false) ? 'Share Capital' : 'Membership Fee');
+        $share_payment_type_id = $resolved_type['id'] ?? null;
         $invoice = 'SHR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6)); // Auto-generate a receipt code
         $status = 'COMPLETED';
         $items_details = "Payment for " . $t_type;
@@ -119,8 +121,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
 
         if ($c_res->num_rows == 0) {
             // Insert New Share/Fee Transaction
-            $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
-            $ins->bind_param("sissssss", $t_date, $member_id, $display_name, $t_type, $amount, $items_details, $invoice, $status);
+            $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
+            $ins->bind_param("sissidsss", $t_date, $member_id, $display_name, $t_type, $share_payment_type_id, $amount, $items_details, $invoice, $status);
             $ins->execute();
             $imported_count++;
         }

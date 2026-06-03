@@ -40,6 +40,49 @@ if ($conn instanceof mysqli) {
     KEY idx_action (action)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
 
+// Configurable member share payment types.
+@$conn->query("CREATE TABLE IF NOT EXISTS config_share_payment_types (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_share_payment_type_name (name),
+    KEY idx_share_payment_type_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+@$conn->query("INSERT IGNORE INTO config_share_payment_types (name, is_active) VALUES
+    ('Membership Fee', 1),
+    ('Share Capital', 1)");
+
+$share_payment_type_column_exists = false;
+$share_payment_type_column_check = @$conn->query("SHOW COLUMNS FROM transactions LIKE 'share_payment_type_id'");
+if ($share_payment_type_column_check && $share_payment_type_column_check->num_rows > 0) {
+    $share_payment_type_column_exists = true;
+}
+if (!$share_payment_type_column_exists) {
+    @$conn->query("ALTER TABLE transactions ADD COLUMN share_payment_type_id INT(11) NULL AFTER transaction_type");
+}
+
+$share_payment_type_index_exists = false;
+$share_payment_type_index_check = @$conn->query("SHOW INDEX FROM transactions WHERE Key_name = 'idx_share_payment_type_id'");
+if ($share_payment_type_index_check && $share_payment_type_index_check->num_rows > 0) {
+    $share_payment_type_index_exists = true;
+}
+if (!$share_payment_type_index_exists) {
+    @$conn->query("ALTER TABLE transactions ADD KEY idx_share_payment_type_id (share_payment_type_id)");
+}
+
+// Backfill legacy rows so older share records stay linked to the config table.
+@$conn->query("UPDATE transactions t
+    JOIN config_share_payment_types c ON LOWER(TRIM(t.transaction_type)) = LOWER(TRIM(c.name))
+    SET t.share_payment_type_id = c.id
+    WHERE t.share_payment_type_id IS NULL");
+@$conn->query("UPDATE transactions t
+    JOIN config_share_payment_types c ON LOWER(TRIM(c.name)) = LOWER('Share Capital')
+    SET t.share_payment_type_id = c.id
+    WHERE t.share_payment_type_id IS NULL AND UPPER(TRIM(t.transaction_type)) = 'SHARE'");
+
 if (!function_exists('getActivityActor')) {
     function getActivityActor(): array
     {
@@ -65,6 +108,85 @@ if (!function_exists('getActivityActor')) {
         }
 
         return [$actor_name ?: 'SYSTEM', $actor_role ?: 'SYSTEM'];
+    }
+}
+
+if (!function_exists('getSharePaymentTypes')) {
+    function getSharePaymentTypes(mysqli $conn, bool $activeOnly = true): array
+    {
+        $types = [];
+        $sql = "SELECT id, name, is_active FROM config_share_payment_types";
+        if ($activeOnly) {
+            $sql .= " WHERE is_active = 1";
+        }
+        $sql .= " ORDER BY is_active DESC, name ASC";
+
+        $res = $conn->query($sql);
+        if ($res && $res->num_rows > 0) {
+            while ($row = $res->fetch_assoc()) {
+                $types[] = $row;
+            }
+        }
+        return $types;
+    }
+}
+
+if (!function_exists('resolveSharePaymentType')) {
+    function resolveSharePaymentType(mysqli $conn, string $label): ?array
+    {
+        $label = trim($label);
+        if ($label === '') {
+            return null;
+        }
+
+        $stmt = $conn->prepare("SELECT id, name, is_active FROM config_share_payment_types WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param("s", $label);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            if ($res && $res->num_rows > 0) {
+                $row = $res->fetch_assoc();
+                $stmt->close();
+                return $row;
+            }
+            $stmt->close();
+        }
+
+        $fallback_keyword = null;
+        if (stripos($label, 'fee') !== false) {
+            $fallback_keyword = 'fee';
+        } elseif (stripos($label, 'share') !== false) {
+            $fallback_keyword = 'share';
+        }
+
+        if ($fallback_keyword !== null) {
+            $sql = "SELECT id, name, is_active FROM config_share_payment_types WHERE LOWER(name) LIKE ? ORDER BY is_active DESC, name ASC LIMIT 1";
+            $like = '%' . $fallback_keyword . '%';
+            $stmt = $conn->prepare($sql);
+            if ($stmt) {
+                $stmt->bind_param("s", $like);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                if ($res && $res->num_rows > 0) {
+                    $row = $res->fetch_assoc();
+                    $stmt->close();
+                    return $row;
+                }
+                $stmt->close();
+            }
+        }
+
+        $res = $conn->query("SELECT id, name, is_active FROM config_share_payment_types WHERE is_active = 1 ORDER BY name ASC LIMIT 1");
+        if ($res && $res->num_rows > 0) {
+            return $res->fetch_assoc();
+        }
+
+        $res = $conn->query("SELECT id, name, is_active FROM config_share_payment_types ORDER BY is_active DESC, name ASC LIMIT 1");
+        if ($res && $res->num_rows > 0) {
+            return $res->fetch_assoc();
+        }
+
+        return null;
     }
 }
 

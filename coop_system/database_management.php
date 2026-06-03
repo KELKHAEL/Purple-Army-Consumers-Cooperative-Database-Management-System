@@ -173,6 +173,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (function_exists('logActivity')) {
                     logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', 'Allow negative stock set to ' . $allow_neg . '.');
                 }
+            } elseif ($action === 'add_share_type' && !empty($_POST['new_share_type'])) {
+                $new_name = trim($_POST['new_share_type']);
+                $stmt = $conn->prepare("INSERT INTO config_share_payment_types (name, is_active) VALUES (?, 1) ON DUPLICATE KEY UPDATE is_active = 1");
+                $stmt->bind_param("s", $new_name);
+                $stmt->execute();
+                $msg = "Share payment type saved successfully.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD SHARE TYPE', 'CONFIG', $conn->insert_id, $new_name, 'Added or reactivated a share payment type.');
+                }
+            } elseif ($action === 'edit_share_type' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
+                $stmt = $conn->prepare("UPDATE config_share_payment_types SET name = ? WHERE id = ?");
+                $stmt->bind_param("si", $new_name, $id);
+                $stmt->execute();
+                $msg = "Share payment type updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT SHARE TYPE', 'CONFIG', $id, $new_name, 'Updated a share payment type label.');
+                }
+            } elseif ($action === 'del_share_type' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_share_payment_types WHERE id = $id")->fetch_assoc();
+                $stmt = $conn->prepare("UPDATE config_share_payment_types SET is_active = 0 WHERE id = ?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $msg = "Share payment type deleted.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE SHARE TYPE', 'CONFIG', $id, $row['name'] ?? '', 'Deactivated a share payment type.');
+                }
             }
 
             if ($msg !== "") {
@@ -210,6 +239,13 @@ $civil_statuses = fetchTable($conn, 'config_civil_status');
 $categories = fetchTable($conn, 'config_product_categories');
 $unit_types = fetchTable($conn, 'config_unit_types');
 $excel_headers = fetchTable($conn, 'config_excel_headers');
+$share_payment_types = [];
+$share_type_res = $conn->query("SELECT id, name, is_active, created_at FROM config_share_payment_types ORDER BY is_active DESC, name ASC");
+if ($share_type_res && $share_type_res->num_rows > 0) {
+    while ($row = $share_type_res->fetch_assoc()) {
+        $share_payment_types[] = $row;
+    }
+}
 
 $setting_res = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'allow_negative_stock'");
 $allow_negative = 0;
@@ -324,6 +360,9 @@ if ($setting_res && $setting_res->num_rows > 0) {
                             </button>
                             <button onclick="switchTab('inventory')" id="btn-inventory" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 <i class="fas fa-boxes mr-2"></i>Inventory Settings
+                            </button>
+                            <button onclick="switchTab('sharetypes')" id="btn-sharetypes" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                <i class="fas fa-tags mr-2"></i>Share Payment Settings
                             </button>
                             <button onclick="switchTab('excel')" id="btn-excel" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 <i class="fas fa-file-excel mr-2"></i>Excel Memberships
@@ -817,6 +856,84 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                         </tr>
                                     </tbody>
                                 </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-sharetypes" class="tab-content hidden">
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-tags text-primary mr-2"></i>Share Payment Types</h3>
+                                    <span class="text-xs bg-purple-100 text-primary px-2 py-1 rounded font-semibold border border-purple-200">Configurable</span>
+                                </div>
+                                <form method="POST" class="p-4 space-y-4">
+                                    <input type="hidden" name="action" value="add_share_type">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">New Payment Type</label>
+                                        <input type="text" name="new_share_type" required placeholder="e.g. Savings Contribution" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                        <i class="fas fa-plus mr-2"></i>ADD TYPE
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div class="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-list-ul text-primary mr-2"></i>Existing Payment Types</h3>
+                                    <span class="text-xs text-gray-500"><?= count($share_payment_types) ?> item(s)</span>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
+                                        <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
+                                            <tr>
+                                                <th class="px-4 py-3 font-bold tracking-wider">Name</th>
+                                                <th class="px-4 py-3 font-bold tracking-wider">Status</th>
+                                                <th class="px-4 py-3 font-bold tracking-wider text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <?php if (!empty($share_payment_types)): ?>
+                                                <?php foreach ($share_payment_types as $type): ?>
+                                                    <tr class="hover:bg-purple-50 transition-colors">
+                                                        <td class="px-4 py-3 font-semibold text-gray-800">
+                                                            <div id="view_share_<?= (int)$type['id'] ?>" class="flex items-center justify-between gap-3">
+                                                                <span><?= htmlspecialchars($type['name']) ?></span>
+                                                                <button type="button" onclick="toggleEdit('share_<?= (int)$type['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
+                                                            </div>
+                                                            <form method="POST" id="edit_share_<?= (int)$type['id'] ?>" class="hidden flex gap-2 mt-2">
+                                                                <input type="hidden" name="action" value="edit_share_type">
+                                                                <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
+                                                                <input type="text" name="edit_name" value="<?= htmlspecialchars($type['name']) ?>" required class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
+                                                                <button type="button" onclick="toggleEdit('share_<?= (int)$type['id'] ?>')" class="text-gray-400 hover:text-gray-600 transition-colors"><i class="fas fa-times"></i></button>
+                                                                <button type="submit" class="bg-primary hover:bg-primaryDark text-white text-xs font-bold px-3 rounded">SAVE</button>
+                                                            </form>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <?php if ((int)$type['is_active'] === 1): ?>
+                                                                <span class="bg-green-100 text-green-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-green-200">ACTIVE</span>
+                                                            <?php else: ?>
+                                                                <span class="bg-gray-100 text-gray-600 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-gray-200">INACTIVE</span>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-right">
+                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this share payment type? Existing records will remain saved.');">
+                                                                <input type="hidden" name="action" value="del_share_type">
+                                                                <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
+                                                                <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <tr>
+                                                    <td colspan="3" class="px-4 py-8 text-center text-gray-500">No share payment types configured yet.</td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
                             </div>
                         </div>
                     </div>
