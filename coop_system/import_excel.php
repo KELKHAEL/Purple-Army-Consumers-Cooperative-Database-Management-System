@@ -15,7 +15,6 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     // 1. THE HEADER THESAURUS (Alias Mapping)
     $header_aliases = [
         'form_id'           => ['formid', 'id', 'formno'],
-        'member_name'       => ['membername', 'name', 'fullname', 'membersname'],
         'member_first_name' => ['memberfirstname', 'firstname'],
         'member_second_name'=> ['membersecondname', 'secondname'],
         'member_middle_name'=> ['membermiddlename', 'middlename'],
@@ -156,7 +155,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 foreach ($header_aliases as $sys_field => $aliases) {
                     if (in_array($clean_col, $aliases)) {
                         $excel_header_index_map[$sys_field] = $col_index;
-                        if ($sys_field === 'form_id' || $sys_field === 'member_name' || $sys_field === 'member_first_name' || $sys_field === 'member_last_name') {
+                        if (in_array($sys_field, ['form_id', 'member_first_name', 'member_second_name', 'member_middle_name', 'member_last_name'], true)) {
                             $is_header_row = true;
                         }
                         break;
@@ -179,6 +178,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         return '';
     }
 
+    function normalizeImportText($input): string {
+        $value = html_entity_decode((string)$input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+        $value = preg_replace('/[^\p{L}\p{N}\s\-]/u', ' ', $value);
+        $value = preg_replace('/\s+/u', ' ', trim($value));
+        if ($value === '') {
+            return '';
+        }
+        return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+    }
+
+    function normalizeImportIdentifier($input): string {
+        $value = html_entity_decode((string)$input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+        $value = preg_replace('/\s+/u', '', trim($value));
+        if ($value === '') {
+            return '';
+        }
+        return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+    }
+
+    $member_rows = [];
+    $member_query = $conn->query("SELECT member_id, form_id, first_name, middle_name, last_name FROM members");
+    if ($member_query) {
+        while ($member = $member_query->fetch_assoc()) {
+            $member_rows[] = $member;
+        }
+    }
+
     $last_inserted_member_id = null;
 
     // Loop through Excel Rows
@@ -191,31 +219,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         if (!is_array($row)) continue;
 
         $form_id            = getVal($row, $excel_header_index_map, 'form_id');
-        $full_name          = getVal($row, $excel_header_index_map, 'member_name');
         $member_first       = getVal($row, $excel_header_index_map, 'member_first_name');
         $member_second      = getVal($row, $excel_header_index_map, 'member_second_name');
         $member_middle      = getVal($row, $excel_header_index_map, 'member_middle_name');
         $member_last        = getVal($row, $excel_header_index_map, 'member_last_name');
         $ben_name           = getVal($row, $excel_header_index_map, 'ben_name');
 
-        $has_member_name = !empty($full_name) || !empty($member_first) || !empty($member_last) || !empty($member_middle) || !empty($member_second);
-        if (!$has_member_name && empty($ben_name)) {
+        $has_member_fields = !empty($member_first) || !empty($member_last) || !empty($member_middle) || !empty($member_second);
+        if (!$has_member_fields && empty($ben_name)) {
             continue;
         }
 
         // -- 1. PROCESS MEMBER --
-        if ($has_member_name) {
-            if (!empty($member_last) || !empty($member_first) || !empty($member_middle) || !empty($member_second)) {
-                $last_name = $member_last;
-                $first_name = trim($member_first . (!empty($member_second) ? ' ' . $member_second : ''));
-                $middle_name = $member_middle;
-
-                if (empty($last_name) && !empty($full_name)) {
-                    list($last_name, $first_name, $middle_name) = splitName($full_name, true);
-                }
-            } else {
-                list($last_name, $first_name, $middle_name) = splitName($full_name, true);
-            }
+        if ($has_member_fields) {
+            $last_name = $member_last;
+            $first_name = trim($member_first . (!empty($member_second) ? ' ' . $member_second : ''));
+            $middle_name = $member_middle;
 
             $dob_val = isset($excel_header_index_map['dob']) ? $row[$excel_header_index_map['dob']] : '';
             $dob = parseDate($dob_val);
@@ -256,16 +275,33 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $check_stmt->close();
             }
 
-            // Priority Match 2: Exact Name (Fixed to prevent NULL mismatch failures)
+            // Priority Match 2: Exact Split Name Match
             if ($existing_member_id === null) {
-                $check_stmt = $conn->prepare("SELECT member_id FROM members WHERE last_name = ? AND first_name = ?");
-                $check_stmt->bind_param("ss", $last_name, $first_name);
-                $check_stmt->execute();
-                $check_res = $check_stmt->get_result();
-                if ($check_res->num_rows > 0) {
-                    $existing_member_id = $check_res->fetch_assoc()['member_id'];
+                $normalized_first = normalizeImportText($first_name);
+                $normalized_middle = normalizeImportText($middle_name);
+                $normalized_last = normalizeImportText($last_name);
+                $matches = [];
+
+                foreach ($member_rows as $member_candidate) {
+                    $candidate_first = normalizeImportText($member_candidate['first_name'] ?? '');
+                    $candidate_middle = normalizeImportText($member_candidate['middle_name'] ?? '');
+                    $candidate_last = normalizeImportText($member_candidate['last_name'] ?? '');
+
+                    if ($normalized_last !== '' && $candidate_last !== $normalized_last) {
+                        continue;
+                    }
+                    if ($normalized_first !== '' && $candidate_first !== $normalized_first) {
+                        continue;
+                    }
+                    if ($normalized_middle !== '' && $candidate_middle !== $normalized_middle) {
+                        continue;
+                    }
+                    $matches[] = $member_candidate;
                 }
-                $check_stmt->close();
+
+                if (count($matches) === 1) {
+                    $existing_member_id = $matches[0]['member_id'];
+                }
             }
 
             if ($existing_member_id !== null) {

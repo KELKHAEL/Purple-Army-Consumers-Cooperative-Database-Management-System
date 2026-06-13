@@ -202,6 +202,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (function_exists('logActivity')) {
                     logActivity($conn, 'SETTINGS', 'DELETE SHARE TYPE', 'CONFIG', $id, $row['name'] ?? '', 'Deactivated a share payment type.');
                 }
+            } elseif ($action === 'add_trans_type' && !empty($_POST['new_trans_type'])) {
+                $new_name = trim($_POST['new_trans_type']);
+                $stmt = $conn->prepare("INSERT INTO config_transaction_types (name, is_active) VALUES (?, 1) ON DUPLICATE KEY UPDATE is_active = 1");
+                $stmt->bind_param("s", $new_name);
+                $stmt->execute();
+                $msg = "Transaction type saved successfully.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD TRANSACTION TYPE', 'CONFIG', $conn->insert_id, $new_name, 'Added or reactivated a transaction type.');
+                }
+            } elseif ($action === 'edit_trans_type' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $new_name = trim($_POST['edit_name']);
+                $stmt = $conn->prepare("UPDATE config_transaction_types SET name = ? WHERE id = ?");
+                $stmt->bind_param("si", $new_name, $id);
+                $stmt->execute();
+                $msg = "Transaction type updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT TRANSACTION TYPE', 'CONFIG', $id, $new_name, 'Updated a transaction type label.');
+                }
+            } elseif ($action === 'del_trans_type' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_transaction_types WHERE id = $id")->fetch_assoc();
+                $stmt = $conn->prepare("UPDATE config_transaction_types SET is_active = 0 WHERE id = ?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $msg = "Transaction type deleted.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE TRANSACTION TYPE', 'CONFIG', $id, $row['name'] ?? '', 'Deactivated a transaction type.');
+                }
             }
 
             if ($msg !== "") {
@@ -246,6 +275,7 @@ if ($share_type_res && $share_type_res->num_rows > 0) {
         $share_payment_types[] = $row;
     }
 }
+$transaction_types = function_exists('getTransactionTypes') ? getTransactionTypes($conn, false) : [];
 
 $setting_res = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'allow_negative_stock'");
 $allow_negative = 0;
@@ -363,6 +393,9 @@ if ($setting_res && $setting_res->num_rows > 0) {
                             </button>
                             <button onclick="switchTab('sharetypes')" id="btn-sharetypes" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 <i class="fas fa-tags mr-2"></i>Share Payment Settings
+                            </button>
+                            <button onclick="switchTab('transtypes')" id="btn-transtypes" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
+                                <i class="fas fa-receipt mr-2"></i>Transaction Types
                             </button>
                             <button onclick="switchTab('excel')" id="btn-excel" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
                                 <i class="fas fa-file-excel mr-2"></i>Excel Memberships
@@ -611,7 +644,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                 <span class="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded font-semibold border border-yellow-200">Advanced Config</span>
                             </div>
                             <div class="p-4 overflow-x-auto">
-                                <p class="text-xs text-gray-500 mb-4">The Membership Importer supports both full-name and split-name formats. It auto-detects these headers and maps them into the members table.</p>
+                                <p class="text-xs text-gray-500 mb-4">The Membership Importer uses split name fields and maps them into the members table. Full-name headers are not supported in the import template.</p>
                                 
                                 <div class="mb-6 bg-gray-50 border border-gray-200 rounded-xl p-4">
                                     <p class="text-sm font-semibold text-gray-800 mb-3">Membership Import Format</p>
@@ -628,10 +661,6 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                                 <td class="px-4 py-2 font-mono text-xs text-primary">Form ID, ID, Form No</td>
                                             </tr>
                                             <tr class="hover:bg-gray-50">
-                                                <td class="px-4 py-2 font-bold text-gray-800">Member Name</td>
-                                                <td class="px-4 py-2 font-mono text-xs text-primary">Member Name, Name, Full Name, Members Name</td>
-                                            </tr>
-                                            <tr class="hover:bg-gray-50">
                                                 <td class="px-4 py-2 font-bold text-gray-800">Member First Name</td>
                                                 <td class="px-4 py-2 font-mono text-xs text-primary">Member First Name, Firstname</td>
                                             </tr>
@@ -646,6 +675,10 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <tr class="hover:bg-gray-50">
                                                 <td class="px-4 py-2 font-bold text-gray-800">Member Last Name</td>
                                                 <td class="px-4 py-2 font-mono text-xs text-primary">Member Last Name, Lastname</td>
+                                            </tr>
+                                            <tr class="hover:bg-gray-50">
+                                                <td class="px-4 py-2 font-bold text-gray-800">Separated Member Name Fields</td>
+                                                <td class="px-4 py-2 font-mono text-xs text-primary">Member First Name, Member Second Name, Member Middle Name, Member Last Name</td>
                                             </tr>
                                             <tr class="hover:bg-gray-50">
                                                 <td class="px-4 py-2 font-bold text-gray-800">Date of Birth</td>
@@ -733,7 +766,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                 <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold border border-blue-200">System Aliases</span>
                             </div>
                             <div class="p-4 overflow-x-auto">
-                                <p class="text-xs text-gray-500 mb-4">The Transactions Importer uses a Smart Engine. Ensure your Excel file uses one of the accepted column names below. It ignores capitalization and spaces.</p>
+                                <p class="text-xs text-gray-500 mb-4">The Transactions Importer uses a Smart Engine. Use the reference and transaction type fields when available. It ignores capitalization and spaces, and it matches members using Member ID, Form ID, or the separated member name fields.</p>
                                 
                                 <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
                                     <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
@@ -748,8 +781,20 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Date of Transaction, Date, Transaction Date</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Member Name</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">PACC Member Name, Member Name, Name, Customer</td>
+                                            <td class="px-4 py-2 font-bold text-gray-800">Reference No. / Invoice No. / Receipt No.</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Invoice, Invoice No, Receipt, Reference No, Ref No</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Transaction Type</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Transaction Type, Type, Category</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Member ID</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Member ID, ID</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Form ID</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Form ID, Form No</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Member First Name</td>
@@ -768,16 +813,20 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Member Last Name, Last Name</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Separated Member Name Fields</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Member First Name, Member Second Name, Member Middle Name, Member Last Name</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Quantity</td>
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Quantity, Qty</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Item Description</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Item Description, Description, Item, Items</td>
+                                            <td class="px-4 py-2 font-bold text-gray-800">Item Name / Description</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Item Description, Description, Item, Items, Item Name</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Selling Price</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Selling Price, Price, Unit Price</td>
+                                            <td class="px-4 py-2 font-bold text-gray-800">Item Cost / Selling Price</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Selling Price, Price, Unit Price, Item Cost</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Amount of Item</td>
@@ -816,7 +865,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                 <span class="text-xs bg-green-100 text-green-800 px-2 py-1 rounded font-semibold border border-green-200">System Aliases</span>
                             </div>
                             <div class="p-4 overflow-x-auto">
-                                <p class="text-xs text-gray-500 mb-4">When importing Member Shares, please format your Excel file using the accepted columns below. The importer will strictly link these payments to existing members.</p>
+                                <p class="text-xs text-gray-500 mb-4">When importing Member Shares, use Member ID or Form ID when available. Otherwise the importer will match the separated name fields using normalized exact comparison. Every row must include a Reference No. / Invoice No. / Receipt No.</p>
                                 
                                 <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
                                     <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
@@ -829,6 +878,14 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Date</td>
                                             <td class="px-4 py-2 font-mono text-xs text-green-600">Date of Transaction, Date</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Member ID</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-green-600">Member ID, ID</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Form ID</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-green-600">Form ID, Form No.</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Reference No. / Invoice No. / Receipt No.</td>
@@ -933,6 +990,84 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <?php else: ?>
                                                 <tr>
                                                     <td colspan="3" class="px-4 py-8 text-center text-gray-500">No share payment types configured yet.</td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="tab-transtypes" class="tab-content hidden">
+                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-receipt text-primary mr-2"></i>Transaction Types</h3>
+                                    <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold border border-blue-200">Configurable</span>
+                                </div>
+                                <form method="POST" class="p-4 space-y-4">
+                                    <input type="hidden" name="action" value="add_trans_type">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">New Transaction Type</label>
+                                        <input type="text" name="new_trans_type" required placeholder="e.g. Sales, Outsourced, Miscellaneous" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                        <i class="fas fa-plus mr-2"></i>ADD TYPE
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div class="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-layer-group text-primary mr-2"></i>Existing Transaction Types</h3>
+                                    <span class="text-xs text-gray-500"><?= count($transaction_types) ?> item(s)</span>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
+                                        <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
+                                            <tr>
+                                                <th class="px-4 py-3 font-bold tracking-wider">Name</th>
+                                                <th class="px-4 py-3 font-bold tracking-wider">Status</th>
+                                                <th class="px-4 py-3 font-bold tracking-wider text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <?php if (!empty($transaction_types)): ?>
+                                                <?php foreach ($transaction_types as $type): ?>
+                                                    <tr class="hover:bg-blue-50 transition-colors">
+                                                        <td class="px-4 py-3 font-semibold text-gray-800">
+                                                            <div id="view_trans_<?= (int)$type['id'] ?>" class="flex items-center justify-between gap-3">
+                                                                <span><?= htmlspecialchars($type['name']) ?></span>
+                                                                <button type="button" onclick="toggleEdit('trans_<?= (int)$type['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
+                                                            </div>
+                                                            <form method="POST" id="edit_trans_<?= (int)$type['id'] ?>" class="hidden flex gap-2 mt-2">
+                                                                <input type="hidden" name="action" value="edit_trans_type">
+                                                                <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
+                                                                <input type="text" name="edit_name" value="<?= htmlspecialchars($type['name']) ?>" required class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
+                                                                <button type="button" onclick="toggleEdit('trans_<?= (int)$type['id'] ?>')" class="text-gray-400 hover:text-gray-600 transition-colors"><i class="fas fa-times"></i></button>
+                                                                <button type="submit" class="bg-primary hover:bg-primaryDark text-white text-xs font-bold px-3 rounded">SAVE</button>
+                                                            </form>
+                                                        </td>
+                                                        <td class="px-4 py-3">
+                                                            <?php if ((int)$type['is_active'] === 1): ?>
+                                                                <span class="bg-green-100 text-green-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-green-200">ACTIVE</span>
+                                                            <?php else: ?>
+                                                                <span class="bg-gray-100 text-gray-600 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-gray-200">INACTIVE</span>
+                                                            <?php endif; ?>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-right">
+                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this transaction type? Existing records will remain saved.');">
+                                                                <input type="hidden" name="action" value="del_trans_type">
+                                                                <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
+                                                                <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <tr>
+                                                    <td colspan="3" class="px-4 py-8 text-center text-gray-500">No transaction types configured yet.</td>
                                                 </tr>
                                             <?php endif; ?>
                                         </tbody>

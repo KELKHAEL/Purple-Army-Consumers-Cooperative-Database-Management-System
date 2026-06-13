@@ -55,6 +55,25 @@ if ($conn instanceof mysqli) {
     ('Membership Fee', 1),
     ('Share Capital', 1)");
 
+// Configurable transaction types for manual transactions and reporting.
+@$conn->query("CREATE TABLE IF NOT EXISTS config_transaction_types (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_transaction_type_name (name),
+    KEY idx_transaction_type_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+@$conn->query("INSERT IGNORE INTO config_transaction_types (name, is_active) VALUES
+    ('Sales', 1),
+    ('Outsourced', 1),
+    ('Share Capital', 1),
+    ('Membership Fee', 1),
+    ('Miscellaneous', 1),
+    ('Purchase', 1)");
+
 $share_payment_type_column_exists = false;
 $share_payment_type_column_check = @$conn->query("SHOW COLUMNS FROM transactions LIKE 'share_payment_type_id'");
 if ($share_payment_type_column_check && $share_payment_type_column_check->num_rows > 0) {
@@ -128,6 +147,92 @@ if (!function_exists('getSharePaymentTypes')) {
             }
         }
         return $types;
+    }
+}
+
+if (!function_exists('getTransactionTypes')) {
+    function getTransactionTypes(mysqli $conn, bool $activeOnly = true): array
+    {
+        $types = [];
+        $sql = "SELECT id, name, is_active FROM config_transaction_types";
+        if ($activeOnly) {
+            $sql .= " WHERE is_active = 1";
+        }
+        $sql .= " ORDER BY is_active DESC, name ASC";
+
+        $res = $conn->query($sql);
+        if ($res && $res->num_rows > 0) {
+            while ($row = $res->fetch_assoc()) {
+                $types[] = $row;
+            }
+        }
+        return $types;
+    }
+}
+
+if (!function_exists('resolveTransactionType')) {
+    function resolveTransactionType(mysqli $conn, string $label): ?array
+    {
+        $label = trim($label);
+        if ($label === '') {
+            return null;
+        }
+
+        $stmt = $conn->prepare("SELECT id, name, is_active FROM config_transaction_types WHERE LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param("s", $label);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            if ($res && $res->num_rows > 0) {
+                $row = $res->fetch_assoc();
+                $stmt->close();
+                return $row;
+            }
+            $stmt->close();
+        }
+
+        $fallback_keyword = null;
+        if (stripos($label, 'sale') !== false) {
+            $fallback_keyword = 'sale';
+        } elseif (stripos($label, 'outsource') !== false) {
+            $fallback_keyword = 'outsource';
+        } elseif (stripos($label, 'share') !== false) {
+            $fallback_keyword = 'share';
+        } elseif (stripos($label, 'member') !== false) {
+            $fallback_keyword = 'member';
+        } elseif (stripos($label, 'misc') !== false) {
+            $fallback_keyword = 'misc';
+        } elseif (stripos($label, 'purchase') !== false) {
+            $fallback_keyword = 'purchase';
+        }
+
+        if ($fallback_keyword !== null) {
+            $like = '%' . $fallback_keyword . '%';
+            $stmt = $conn->prepare("SELECT id, name, is_active FROM config_transaction_types WHERE LOWER(name) LIKE ? ORDER BY is_active DESC, name ASC LIMIT 1");
+            if ($stmt) {
+                $stmt->bind_param("s", $like);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                if ($res && $res->num_rows > 0) {
+                    $row = $res->fetch_assoc();
+                    $stmt->close();
+                    return $row;
+                }
+                $stmt->close();
+            }
+        }
+
+        $res = $conn->query("SELECT id, name, is_active FROM config_transaction_types WHERE is_active = 1 ORDER BY name ASC LIMIT 1");
+        if ($res && $res->num_rows > 0) {
+            return $res->fetch_assoc();
+        }
+
+        $res = $conn->query("SELECT id, name, is_active FROM config_transaction_types ORDER BY is_active DESC, name ASC LIMIT 1");
+        if ($res && $res->num_rows > 0) {
+            return $res->fetch_assoc();
+        }
+
+        return null;
     }
 }
 

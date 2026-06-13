@@ -814,6 +814,14 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     </div>
                     
                     <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
+                        <select id="logTypeFilter" class="bg-white border border-gray-300 rounded-md px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-52">
+                            <option value="ALL">All Log Types</option>
+                            <option value="Pay Later">Pay Later</option>
+                            <option value="Others">Outsourced</option>
+                            <option value="PENDING">Pending</option>
+                            <option value="RECONCILED">Reconciled</option>
+                            <option value="COMPLETED">Completed</option>
+                        </select>
                         <div class="flex items-center gap-2 w-full sm:w-auto bg-white border border-gray-300 rounded-lg px-3 py-1 shadow-sm">
                             <i class="fas fa-calendar-alt text-gray-400"></i>
                             <input type="date" id="dateFilterStart" class="outline-none text-sm text-gray-700 bg-transparent cursor-pointer">
@@ -833,6 +841,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
                 <div class="sales-print-header">
                     <div class="sales-print-title">Sales Report</div>
+                    <div class="sales-print-date" id="salesPrintMetaType">Type: All Log Types</div>
+                    <div class="sales-print-date" id="salesPrintMetaDate">Date Range: All Dates</div>
                     <div class="sales-print-date">Date Generated: <?= htmlspecialchars($generated_at) ?></div>
                 </div>
 
@@ -915,7 +925,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
                                             $ref_line = ($t_ref && $t_ref !== 'N/A' && $t_ref !== 'OUTSOURCED') ? "<div class='text-[10px] font-mono text-gray-500 mt-1'>REF: " . htmlspecialchars($t_ref) . "</div>" : "";
 
-                                            echo "<tr class='log-row hover:bg-purple-50 transition-colors' data-date='{$raw_date}'>
+                                            echo "<tr class='log-row hover:bg-purple-50 transition-colors' data-date='{$raw_date}' data-method='Pay Later' data-status='{$t_status}'>
                                                     <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
                                                     <td class='px-6 py-4 font-bold text-gray-900 capitalize'>{$name}</td>
                                                     <td class='px-6 py-4 text-gray-700'>
@@ -961,7 +971,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                             $row_bg = "";
                                         }
 
-                                        echo "<tr class='log-row hover:bg-purple-50 transition-colors {$row_bg}' data-date='{$raw_date}'>
+                                        echo "<tr class='log-row hover:bg-purple-50 transition-colors {$row_bg}' data-date='{$raw_date}' data-method='" . htmlspecialchars($method) . "' data-status='" . htmlspecialchars($status) . "'>
                                                 <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
                                                 <td class='px-6 py-4 font-bold text-gray-900 capitalize'>{$name}</td>
                                                 <td class='px-6 py-4 text-gray-700'>
@@ -1024,6 +1034,7 @@ function cancelPayLaterModal() {
             let searchText = document.getElementById('logSearch').value.toLowerCase();
             let startDate = document.getElementById('dateFilterStart').value;
             let endDate = document.getElementById('dateFilterEnd').value;
+            let typeFilter = document.getElementById('logTypeFilter').value;
             let rows = document.querySelectorAll('#logTableBody tr');
             let currentHeader = null;
             let visibleItemsUnderHeader = 0;
@@ -1045,6 +1056,14 @@ function cancelPayLaterModal() {
 
                 let textMatch = row.textContent.toLowerCase().includes(searchText);
                 let dateMatch = true;
+                let typeMatch = true;
+
+                if (typeFilter !== 'ALL') {
+                    const rowMethod = row.dataset.method || '';
+                    const rowStatus = (row.dataset.status || '').toUpperCase();
+                    const rowMethodUpper = rowMethod.toUpperCase();
+                    typeMatch = rowMethod === typeFilter || rowMethodUpper === typeFilter.toUpperCase() || rowStatus === typeFilter.toUpperCase();
+                }
 
                 if (startDate || endDate) {
                     let rowDateStr = row.dataset.date; // e.g. "2024-05-20"
@@ -1067,7 +1086,7 @@ function cancelPayLaterModal() {
                     }
                 }
 
-                if (textMatch && dateMatch) {
+                if (textMatch && dateMatch && typeMatch) {
                     row.style.display = '';
                     visibleItemsUnderHeader++;
                 } else {
@@ -1078,9 +1097,15 @@ function cancelPayLaterModal() {
             if (currentHeader !== null) {
                 currentHeader.style.display = visibleItemsUnderHeader > 0 ? '' : 'none';
             }
+
+            document.getElementById('salesPrintMetaType').innerText = 'Type: ' + (typeFilter === 'ALL' ? 'All Log Types' : typeFilter);
+            document.getElementById('salesPrintMetaDate').innerText = (startDate || endDate)
+                ? 'Date Range: ' + (startDate || 'Start') + ' to ' + (endDate || 'End')
+                : 'Date Range: All Dates';
         }
 
         document.getElementById('logSearch').addEventListener('keyup', filterTable);
+        document.getElementById('logTypeFilter').addEventListener('change', filterTable);
         document.getElementById('dateFilterStart').addEventListener('change', filterTable);
         document.getElementById('dateFilterEnd').addEventListener('change', filterTable);
 

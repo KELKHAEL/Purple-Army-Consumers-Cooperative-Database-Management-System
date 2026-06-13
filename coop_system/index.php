@@ -2,6 +2,69 @@
 session_start(); // CRITICAL: Start session to catch alerts from import_excel.php
 include 'db.php'; 
 
+if (isset($_GET['template']) && $_GET['template'] === 'excel') {
+    require_once __DIR__ . '/vendor/autoload.php';
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Member Import Template');
+
+    $sheet->mergeCells('A1:W1');
+    $sheet->mergeCells('A2:W2');
+    $sheet->mergeCells('A3:W3');
+    $sheet->setCellValue('A1', 'Membership Import Template');
+    $sheet->setCellValue('A2', 'Use the headers below when uploading members through the import form.');
+    $sheet->setCellValue('A3', 'Replace the sample row with your own data before importing and if there are 2 or more beneficiaries, put it below or merged the cells.');
+    $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+    $sheet->getStyle('A1:A3')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+    $sheet->getStyle('A1:W3')->getFont()->setName('Arial')->setSize(12);
+
+    $headers = [
+        'Form ID',
+        'Member First Name',
+        'Member Second Name',
+        'Member Middle Name',
+        'Member Last Name',
+        'Date of Birth',
+        'Birth Place',
+        'Civil Status',
+        'Religion',
+        'Sex',
+        'Tribe',
+        'SSS / GSIS No.',
+        'TIN No.',
+        'Postal Code',
+        'Address',
+        'Business - Office Address',
+        'Educational Attainment',
+        'Present Employment / Business Activities',
+        'Occupation',
+        'Monthly Income',
+        'Beneficiaries Name',
+        'Beneficiaries Date of Birth',
+        'Relationship to the Member'
+    ];
+    $sheet->fromArray($headers, null, 'A5');
+    $sheet->getStyle('A5:W5')->getFont()->setBold(true);
+    $sheet->getStyle('A5:W5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3E8FF');
+
+    $sheet->fromArray([
+        ['26-001', 'JUAN', '', 'D.', 'CRUZ', '1990-01-01', 'TANZA, CAVITE', 'SINGLE', 'CATHOLIC', 'MALE', 'FILIPINO', '00-0000000-0', '123-456-789', '4108', 'ADDRESS HERE', 'BUSINESS ADDRESS', 'COLLEGE GRADUATE', 'SELF-EMPLOYED', 'MERCHANT', '10,000 - 15,000', 'CRUZ, JANE D.', '1995-01-01', 'SPOUSE']
+    ], null, 'A6');
+
+    foreach (range('A', 'W') as $column) {
+        $sheet->getColumnDimension($column)->setAutoSize(true);
+    }
+
+    $filename = 'Membership_Import_Template.xlsx';
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment;filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->save('php://output');
+    exit();
+}
+
 // Fetch the total number of members
 $totalMembers = 0;
 $countQuery = "SELECT COUNT(member_id) as total FROM members";
@@ -131,6 +194,10 @@ if ($countResult && $countResult->num_rows > 0) {
                             <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
                             <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD</button>
                         </form>
+
+                        <a href="index.php?template=excel" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
+                            <i class="fas fa-download mr-2"></i>IMPORT TEMPLATE
+                        </a>
                         
                         <a href="export_excel.php" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap"><i class="fas fa-file-excel mr-2"></i>EXPORT</a>
                         

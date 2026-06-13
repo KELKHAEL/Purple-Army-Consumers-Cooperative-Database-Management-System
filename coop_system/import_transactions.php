@@ -16,6 +16,27 @@ if($checkCols->num_rows == 0) {
     $conn->query("ALTER TABLE transactions ADD COLUMN remaining_balance DECIMAL(10,2) NULL AFTER downpayment");
 }
 
+function normalizeTxnImportText($input): string {
+    $value = html_entity_decode((string)$input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+    $value = preg_replace('/[^\p{L}\p{N}\s\-]/u', ' ', $value);
+    $value = preg_replace('/\s+/u', ' ', trim($value));
+    if ($value === '') {
+        return '';
+    }
+    return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+}
+
+function normalizeTxnImportIdentifier($input): string {
+    $value = html_entity_decode((string)$input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+    $value = preg_replace('/\s+/u', '', trim($value));
+    if ($value === '') {
+        return '';
+    }
+    return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     
     $fileTmpPath = $_FILES['excel_file']['tmp_name'];
@@ -26,19 +47,22 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     // 1. HEADER ALIASES
     $header_aliases = [
         'date'               => ['dateoftransaction', 'date', 'transactiondate'],
-        'member_name'        => ['paccmembername', 'membername', 'name', 'customer'],
+        'transaction_type'   => ['transactiontype', 'type', 'category'],
+        'reference_no'       => ['referencenoinvoicenoreceiptno', 'referencenoinvoice', 'referenceno', 'invoiceno', 'receiptono', 'refno', 'invoice', 'receipt'],
+        'member_id'          => ['memberid', 'id'],
+        'form_id'            => ['formid', 'formno'],
         'member_first_name'  => ['memberfirstname', 'firstname'],
         'member_second_name' => ['membersecondname', 'secondname'],
         'member_middle_name' => ['membermiddlename', 'middlename'],
         'member_last_name'   => ['memberlastname', 'lastname'],
         'qty'                => ['quantity', 'qty'],
-        'item_desc'          => ['itemdescription', 'description', 'item', 'items'],
-        'price'              => ['sellingprice', 'price', 'unitprice'],
+        'item_desc'          => ['itemdescription', 'description', 'item', 'items', 'itemname'],
+        'price'              => ['sellingprice', 'price', 'unitprice', 'itemcost'],
         'item_amount'        => ['amountofitem', 'itemamount'],
         'total_amount'       => ['totalamount', 'total', 'amount'],
         'payment_date'       => ['dateofpayment', 'paymentdate'],
         'downpayment'        => ['downpaymentamount', 'downpayment', 'dp'],
-        'invoice'            => ['invoice', 'invoiceno', 'receipt'],
+        'invoice'            => ['invoice', 'invoiceno', 'receipt', 'referenceno', 'reference'],
         'balance'            => ['remainingbalance', 'balance', 'remaining'],
         'status'             => ['paymentstatus', 'status']
     ];
@@ -116,7 +140,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 foreach ($header_aliases as $sys_field => $aliases) {
                     if (in_array($clean_col, $aliases)) {
                         $excel_map[$sys_field] = $col_idx;
-                        if ($sys_field === 'member_name' || $sys_field === 'member_first_name' || $sys_field === 'member_last_name' || $sys_field === 'date') {
+                        if (in_array($sys_field, ['member_first_name', 'member_second_name', 'member_middle_name', 'member_last_name', 'date', 'reference_no', 'member_id', 'form_id', 'transaction_type'], true)) {
                             $is_header = true;
                         }
                         break;
@@ -133,6 +157,37 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         return isset($map[$field]) && isset($row[$map[$field]]) ? trim((string)$row[$map[$field]]) : '';
     }
 
+    function buildTxnMemberDisplayName($last, $first, $second, $middle) {
+        $last = trim((string)$last);
+        $first = trim(preg_replace('/\s+/u', ' ', trim((string)$first . ' ' . (string)$second)));
+        $middle = trim((string)$middle);
+
+        if ($last === '' && $first === '' && $middle === '') {
+            return '';
+        }
+
+        $pieces = [];
+        if ($last !== '') {
+            $pieces[] = $last . ',';
+        }
+        if ($first !== '') {
+            $pieces[] = $first;
+        }
+        if ($middle !== '') {
+            $pieces[] = $middle;
+        }
+
+        return trim(preg_replace('/\s+/u', ' ', implode(' ', $pieces)));
+    }
+
+    $member_rows = [];
+    $member_query = $conn->query("SELECT member_id, form_id, first_name, middle_name, last_name FROM members");
+    if ($member_query) {
+        while ($member = $member_query->fetch_assoc()) {
+            $member_rows[] = $member;
+        }
+    }
+
     // 4. MULTI-ROW GROUPING ENGINE
     $transactions_to_save = [];
     $current_idx = -1;
@@ -141,32 +196,35 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         $row = $rows[$i];
         if (!is_array($row)) continue;
 
-        $cell_name = getVal($row, $excel_map, 'member_name');
         $cell_first = getVal($row, $excel_map, 'member_first_name');
         $cell_second = getVal($row, $excel_map, 'member_second_name');
         $cell_middle = getVal($row, $excel_map, 'member_middle_name');
         $cell_last = getVal($row, $excel_map, 'member_last_name');
+        $cell_member_id = preg_replace('/\D+/', '', getVal($row, $excel_map, 'member_id'));
+        $cell_form_id = normalizeTxnImportIdentifier(getVal($row, $excel_map, 'form_id'));
         $cell_date = getVal($row, $excel_map, 'date');
+        $cell_type = getVal($row, $excel_map, 'transaction_type');
+        $cell_reference = getVal($row, $excel_map, 'reference_no');
 
-        if (empty($cell_name) && (!empty($cell_first) || !empty($cell_last) || !empty($cell_middle) || !empty($cell_second))) {
-            $parts = [];
-            if ($cell_last !== '') $parts[] = $cell_last . ',';
-            if ($cell_first !== '') $parts[] = $cell_first;
-            if ($cell_second !== '') $parts[] = $cell_second;
-            if ($cell_middle !== '') $parts[] = $cell_middle;
-            $cell_name = trim(implode(' ', $parts));
-        }
+        $has_member_identity = $cell_member_id !== '' || $cell_form_id !== '' || $cell_first !== '' || $cell_second !== '' || $cell_middle !== '' || $cell_last !== '';
 
         // If the row has a name or date, it is a NEW transaction block
-        if (!empty($cell_name) || !empty($cell_date)) {
+        if ($has_member_identity || !empty($cell_date) || !empty($cell_type) || !empty($cell_reference)) {
             $current_idx++;
             $transactions_to_save[$current_idx] = [
                 'date'         => parseDate($cell_date) ?: date('Y-m-d'),
-                'member_name'  => $cell_name,
                 'total_amount' => cleanNumber(getVal($row, $excel_map, 'total_amount')),
                 'downpayment'  => cleanNumber(getVal($row, $excel_map, 'downpayment')),
                 'invoice'      => getVal($row, $excel_map, 'invoice'),
                 'balance'      => cleanNumber(getVal($row, $excel_map, 'balance')),
+                'transaction_type' => $cell_type,
+                'member_id'    => $cell_member_id,
+                'form_id'      => $cell_form_id,
+                'member_first_name' => $cell_first,
+                'member_second_name' => $cell_second,
+                'member_middle_name' => $cell_middle,
+                'member_last_name' => $cell_last,
+                'reference_no' => $cell_reference,
                 'status'       => strtoupper(getVal($row, $excel_map, 'status')),
                 'items'        => [] 
             ];
@@ -190,33 +248,96 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     $inserted_count = 0;
     $updated_count = 0;
     foreach ($transactions_to_save as $txn) {
-        if (empty($txn['member_name'])) continue;
-
         $items_str = implode("\n", $txn['items']);
 
-        // Strict parsing logic
-        list($last, $first, $middle) = splitNameStrict($txn['member_name']);
-
-        // STRICT EXACT MATCHING ONLY (No Fuzzy Search)
         $member_id = null;
-        $stmt = $conn->prepare("SELECT member_id FROM members WHERE last_name = ? AND first_name = ? LIMIT 1");
-        $stmt->bind_param("ss", $last, $first);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        if ($res->num_rows > 0) {
-            $member_id = $res->fetch_assoc()['member_id'];
-        }
-        $stmt->close();
+        $resolved_member = null;
+        $txn_name_display = buildTxnMemberDisplayName(
+            $txn['member_last_name'] ?? '',
+            $txn['member_first_name'] ?? '',
+            $txn['member_second_name'] ?? '',
+            $txn['member_middle_name'] ?? ''
+        );
 
-        $t_type = "PURCHASE";
-        if (stripos($items_str, 'share') !== false || stripos($txn['member_name'], 'share') !== false) {
-            $t_type = "SHARE";
+        if ($txn['member_id'] !== '') {
+            $member_id_int = (int)$txn['member_id'];
+            foreach ($member_rows as $member_candidate) {
+                if ((int)$member_candidate['member_id'] === $member_id_int) {
+                    $resolved_member = $member_candidate;
+                    break;
+                }
+            }
+        }
+
+        if ($resolved_member === null && $txn['form_id'] !== '') {
+            foreach ($member_rows as $member_candidate) {
+                if (normalizeTxnImportIdentifier($member_candidate['form_id'] ?? '') === $txn['form_id']) {
+                    $resolved_member = $member_candidate;
+                    break;
+                }
+            }
+        }
+
+        if ($resolved_member === null) {
+            $normalized_first = normalizeTxnImportText(trim((string)$txn['member_first_name'] . ' ' . (string)$txn['member_second_name']));
+            $normalized_middle = normalizeTxnImportText($txn['member_middle_name'] ?? '');
+            $normalized_last = normalizeTxnImportText($txn['member_last_name'] ?? '');
+
+            $matches = [];
+            foreach ($member_rows as $member_candidate) {
+                $candidate_first = normalizeTxnImportText($member_candidate['first_name'] ?? '');
+                $candidate_middle = normalizeTxnImportText($member_candidate['middle_name'] ?? '');
+                $candidate_last = normalizeTxnImportText($member_candidate['last_name'] ?? '');
+
+                if ($normalized_last !== '' && $candidate_last !== $normalized_last) {
+                    continue;
+                }
+                if ($normalized_first !== '' && $candidate_first !== $normalized_first) {
+                    continue;
+                }
+                if ($normalized_middle !== '' && $candidate_middle !== $normalized_middle) {
+                    continue;
+                }
+                $matches[] = $member_candidate;
+            }
+
+            if (count($matches) === 1) {
+                $resolved_member = $matches[0];
+            }
+        }
+
+        if ($resolved_member !== null) {
+            $member_id = (int)$resolved_member['member_id'];
+            $member_name_parts = [
+                trim((string)($resolved_member['last_name'] ?? '')),
+                trim((string)($resolved_member['first_name'] ?? '')),
+                trim((string)($resolved_member['middle_name'] ?? ''))
+            ];
+            $txn_name_display = trim(preg_replace('/\s+/', ' ', $member_name_parts[0] . ', ' . $member_name_parts[1] . ' ' . $member_name_parts[2]));
+        }
+
+        $resolved_type = function_exists('resolveTransactionType') ? resolveTransactionType($conn, $txn['transaction_type']) : null;
+        $t_type = $resolved_type['name'] ?? '';
+        if ($t_type === '') {
+            $t_type = "PURCHASE";
+            if (stripos($items_str, 'share') !== false) {
+                $t_type = "SHARE";
+            }
+        }
+
+        if ($txn_name_display === '') {
+            continue;
         }
 
         // Avoid Duplicates
-        $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND member_name = ? AND invoice_no = ?");
-        $check->bind_param("sss", $txn['date'], $txn['member_name'], $txn['invoice']);
+        $reference_value = $txn['reference_no'] !== '' ? $txn['reference_no'] : $txn['invoice'];
+        if ($member_id !== null) {
+            $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND member_id = ? AND invoice_no = ?");
+            $check->bind_param("sis", $txn['date'], $member_id, $reference_value);
+        } else {
+            $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND invoice_no = ?");
+            $check->bind_param("ss", $txn['date'], $reference_value);
+        }
         $check->execute();
         $c_res = $check->get_result();
 
@@ -228,7 +349,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             $updated_count++;
         } else {
             $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $ins->bind_param("sissssssdd", $txn['date'], $member_id, $txn['member_name'], $t_type, $txn['total_amount'], $items_str, $txn['invoice'], $txn['status'], $txn['downpayment'], $txn['balance']);
+            $ins->bind_param("sissssssdd", $txn['date'], $member_id, $txn_name_display, $t_type, $txn['total_amount'], $items_str, $reference_value, $txn['status'], $txn['downpayment'], $txn['balance']);
             $ins->execute();
             $inserted_count++;
         }

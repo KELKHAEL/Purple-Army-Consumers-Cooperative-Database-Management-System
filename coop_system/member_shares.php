@@ -232,6 +232,76 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
             }
         }
     </script>
+    <style>
+        .share-print-header { display: none; }
+        @media print {
+            @page { margin: 14mm; }
+            html, body {
+                background: #ffffff !important;
+                overflow: visible !important;
+                height: auto !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
+            }
+            .print\:hidden { display: none !important; }
+            .h-screen,
+            .overflow-hidden,
+            .overflow-y-auto,
+            .overflow-x-auto {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            main,
+            main > div {
+                display: block !important;
+                height: auto !important;
+                overflow: visible !important;
+                width: 100% !important;
+                padding: 0 !important;
+            }
+            .share-print-header {
+                display: block !important;
+                text-align: center;
+                margin-bottom: 16px;
+                color: #111827;
+            }
+            .share-print-title {
+                font-size: 20px !important;
+                font-weight: 700;
+                margin-bottom: 8px;
+            }
+            .share-print-meta {
+                font-size: 13px !important;
+                margin-bottom: 6px;
+            }
+            #shareReportCard {
+                border: none !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+                overflow: visible !important;
+            }
+            #shareReportTable {
+                width: 100% !important;
+                border-collapse: collapse !important;
+                white-space: normal !important;
+                font-family: Arial, sans-serif !important;
+                font-size: 12px !important;
+            }
+            #shareReportTable th,
+            #shareReportTable td {
+                border: 1px solid #d1d5db !important;
+                padding: 5px 6px !important;
+                font-size: 12px !important;
+            }
+            #shareReportTable thead th {
+                background: #f3f4f6 !important;
+                color: #111827 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased overflow-hidden">
 
@@ -381,21 +451,34 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                     </div>
                 </div>
 
-                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 print:hidden">
+                <div class="flex flex-col gap-4 mb-6 print:hidden">
                     
-                    <div class="flex w-full lg:w-1/3 bg-white border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary shadow-sm">
-                        <div class="px-3 py-2 text-gray-400 flex items-center justify-center"><i class="fas fa-search"></i></div>
-                        <input type="text" id="shareSearch" placeholder="Search member, reference, or type..." class="w-full py-2 pr-4 outline-none text-sm text-gray-700 bg-transparent">
+                    <div class="flex flex-col sm:flex-row gap-3 w-full items-stretch sm:items-center">
+                        <div class="flex w-full lg:w-80 bg-white border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary shadow-sm">
+                            <div class="px-3 py-2 text-gray-400 flex items-center justify-center"><i class="fas fa-search"></i></div>
+                            <input type="text" id="shareSearch" placeholder="Search member, reference, or type..." class="w-full py-2 pr-4 outline-none text-sm text-gray-700 bg-transparent">
+                        </div>
+                        <select id="shareTypeFilter" class="bg-white border border-gray-300 rounded-lg px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-64">
+                            <option value="ALL">All Share Types</option>
+                            <?php foreach ($share_payment_types as $type): ?>
+                                <option value="<?= htmlspecialchars($type['name']) ?>"><?= htmlspecialchars($type['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <input type="date" id="shareDateStart" class="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-auto">
+                        <input type="date" id="shareDateEnd" class="bg-white border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-auto">
+                        <button type="button" onclick="clearShareFilters()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm border border-gray-300 w-full sm:w-auto whitespace-nowrap">
+                            <i class="fas fa-filter-circle-xmark mr-2"></i>CLEAR FILTERS
+                        </button>
                     </div>
                     
-                    <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
+                    <div class="flex flex-col sm:flex-row flex-wrap gap-3 w-full items-center">
                         <form action="import_shares.php" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto bg-white p-1.5 rounded-lg border border-gray-200 shadow-sm items-center">
                             <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
                             <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD SHARES</button>
                         </form>
 
                         <a href="member_shares.php?template=excel" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap text-center">
-                            <i class="fas fa-download mr-2"></i>DOWNLOAD IMPORT TEMPLATE
+                            <i class="fas fa-download mr-2"></i>IMPORT TEMPLATE
                         </a>
 
                         <button type="button" onclick="openShareModal()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap">
@@ -412,12 +495,19 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                     </div>
                 </div>
 
-                <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <div class="share-print-header">
+                    <div class="share-print-title">Member Shares Report</div>
+                    <div class="share-print-meta" id="sharePrintMetaType">Type: All Share Types</div>
+                    <div class="share-print-meta" id="sharePrintMetaDate">Date Range: All Dates</div>
+                    <div class="share-print-meta">Date Generated: <?= htmlspecialchars(date('F d, Y h:i A')) ?></div>
+                </div>
+
+                <div id="shareReportCard" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                     <div class="bg-gray-50 px-6 py-4 border-b border-gray-200">
                         <h4 class="font-bold text-gray-800"><i class="fas fa-list-ul text-primary mr-2"></i>Member Share Logs</h4>
                     </div>
                     <div class="overflow-x-auto">
-                        <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
+                        <table id="shareReportTable" class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
                             <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
                                 <tr>
                                     <th class="px-6 py-4 font-bold tracking-wider">Date</th>
@@ -452,7 +542,8 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                                                 $stat_badge = "<span class='bg-red-100 text-red-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-red-200'>$status</span>";
                                             }
 
-                                            echo "<tr class='share-row hover:bg-purple-50 transition-colors'>
+                                            $type_value = htmlspecialchars($row['share_type_name'] ?? $row['transaction_type']);
+                                            echo "<tr class='share-row hover:bg-purple-50 transition-colors' data-date='" . htmlspecialchars($row['transaction_date']) . "' data-type='{$type_value}'>
                                                     <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
                                                     <td class='px-6 py-4 font-mono text-gray-700'>{$inv}</td>
                                                     <td class='px-6 py-4 font-bold text-gray-900 capitalize'>" . htmlspecialchars($row['member_name']) . "</td>
@@ -495,16 +586,59 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
             document.getElementById('shareModal').classList.remove('flex');
         }
 
-        // --- LIVE SEARCH LOGIC ---
-        document.getElementById('shareSearch').addEventListener('keyup', function() {
-            let filter = this.value.toLowerCase();
-            let rows = document.querySelectorAll('.share-row');
+        function updateSharePrintMeta() {
+            const typeFilter = document.getElementById('shareTypeFilter').value;
+            const startDate = document.getElementById('shareDateStart').value;
+            const endDate = document.getElementById('shareDateEnd').value;
+
+            document.getElementById('sharePrintMetaType').innerText = 'Type: ' + (typeFilter === 'ALL' ? 'All Share Types' : typeFilter);
+            document.getElementById('sharePrintMetaDate').innerText = (startDate || endDate)
+                ? 'Date Range: ' + (startDate || 'Start') + ' to ' + (endDate || 'End')
+                : 'Date Range: All Dates';
+        }
+
+        function filterShareRows() {
+            const filter = document.getElementById('shareSearch').value.toLowerCase();
+            const typeFilter = document.getElementById('shareTypeFilter').value;
+            const startDate = document.getElementById('shareDateStart').value;
+            const endDate = document.getElementById('shareDateEnd').value;
+            const rows = document.querySelectorAll('.share-row');
 
             rows.forEach(row => {
-                let text = row.textContent.toLowerCase();
-                row.style.display = text.includes(filter) ? '' : 'none';
+                let matches = row.textContent.toLowerCase().includes(filter);
+                const rowType = row.dataset.type || '';
+                const rowDate = row.dataset.date || '';
+
+                if (matches && typeFilter !== 'ALL' && rowType !== typeFilter) {
+                    matches = false;
+                }
+                if (matches && startDate && rowDate && rowDate < startDate) {
+                    matches = false;
+                }
+                if (matches && endDate && rowDate && rowDate > endDate) {
+                    matches = false;
+                }
+
+                row.style.display = matches ? '' : 'none';
             });
-        });
+
+            updateSharePrintMeta();
+        }
+
+        document.getElementById('shareSearch').addEventListener('keyup', filterShareRows);
+        document.getElementById('shareTypeFilter').addEventListener('change', filterShareRows);
+        document.getElementById('shareDateStart').addEventListener('change', filterShareRows);
+        document.getElementById('shareDateEnd').addEventListener('change', filterShareRows);
+
+        function clearShareFilters() {
+            document.getElementById('shareSearch').value = '';
+            document.getElementById('shareTypeFilter').value = 'ALL';
+            document.getElementById('shareDateStart').value = '';
+            document.getElementById('shareDateEnd').value = '';
+            filterShareRows();
+        }
+
+        document.addEventListener('DOMContentLoaded', filterShareRows);
 
         // --- CUSTOM ALERT LOGIC ---
         let alertRedirectUrl = null;
