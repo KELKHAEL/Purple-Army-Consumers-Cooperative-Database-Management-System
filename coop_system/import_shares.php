@@ -15,6 +15,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     // 1. STRICT HEADER ALIASES (Matches your exact instructions)
     $header_aliases = [
         'date'        => ['dateoftransaction', 'date'],
+        'reference_no' => ['referencenoinvoicenoreceiptno', 'referenceno', 'invoiceno', 'receiptono', 'refno', 'reference', 'invoice', 'receipt'],
         'first_name'  => ['memberfirstname', 'firstname'],
         'second_name' => ['membersecondname', 'secondname'],
         'middle_name' => ['membermiddlename', 'middlename'],
@@ -66,66 +67,89 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     }
 
     // 4. PARSE ROWS & STRICTLY INSERT INTO DB
+    if (!isset($excel_map['reference_no'])) {
+        $_SESSION['alert_title'] = "Missing Column";
+        $_SESSION['alert_message'] = "Your Excel file must include a Reference No. / Invoice No. / Receipt No. column.";
+        $_SESSION['alert_type'] = "error";
+        header("Location: member_shares.php");
+        exit();
+    }
+
     $imported_count = 0;
-    for ($i = $start_row; $i < count($rows); $i++) {
-        $row = $rows[$i];
-        if (!is_array($row)) continue;
+    $conn->begin_transaction();
+    try {
+        for ($i = $start_row; $i < count($rows); $i++) {
+            $row = $rows[$i];
+            if (!is_array($row)) continue;
 
-        $raw_date = getVal($row, $excel_map, 'date');
-        $first = getVal($row, $excel_map, 'first_name');
-        $second = getVal($row, $excel_map, 'second_name');
-        $middle = getVal($row, $excel_map, 'middle_name');
-        $last = getVal($row, $excel_map, 'last_name');
-        
-        $type = getVal($row, $excel_map, 'type');
-        $amount = cleanNumber(getVal($row, $excel_map, 'amount'));
+            $raw_date = getVal($row, $excel_map, 'date');
+            $reference_no = trim((string)getVal($row, $excel_map, 'reference_no'));
+            $first = getVal($row, $excel_map, 'first_name');
+            $second = getVal($row, $excel_map, 'second_name');
+            $middle = getVal($row, $excel_map, 'middle_name');
+            $last = getVal($row, $excel_map, 'last_name');
+            
+            $type = getVal($row, $excel_map, 'type');
+            $amount = cleanNumber(getVal($row, $excel_map, 'amount'));
 
-        // Skip entirely blank rows or rows without a name
-        if (empty($last) && empty($first)) continue;
+            // Skip entirely blank rows or rows without a name
+            if (empty($last) && empty($first)) continue;
 
-        $t_date = parseDate($raw_date) ?: date('Y-m-d');
-        
-        // Construct the full display name for the transaction log
-        $full_name_parts = [$last . ','];
-        if (!empty($first)) $full_name_parts[] = $first;
-        if (!empty($second)) $full_name_parts[] = $second;
-        if (!empty($middle)) $full_name_parts[] = $middle;
-        $display_name = implode(' ', $full_name_parts);
+            if ($reference_no === '') {
+                throw new Exception('Missing Reference No. / Invoice No. / Receipt No. on row ' . ($i + 1) . '.');
+            }
 
-        // --- STRICT EXACT MATCHING ---
-        // Searches the DB for a 100% exact match of Last Name and First Name
-        $member_id = null;
-        $stmt = $conn->prepare("SELECT member_id FROM members WHERE last_name = ? AND first_name = ? LIMIT 1");
-        $stmt->bind_param("ss", $last, $first);
-        $stmt->execute();
-        $res = $stmt->get_result();
-        
-        if ($res->num_rows > 0) {
-            $member_id = $res->fetch_assoc()['member_id'];
+            $t_date = parseDate($raw_date) ?: date('Y-m-d');
+            
+            // Construct the full display name for the transaction log
+            $full_name_parts = [$last . ','];
+            if (!empty($first)) $full_name_parts[] = $first;
+            if (!empty($second)) $full_name_parts[] = $second;
+            if (!empty($middle)) $full_name_parts[] = $middle;
+            $display_name = implode(' ', $full_name_parts);
+
+            // --- STRICT EXACT MATCHING ---
+            // Searches the DB for a 100% exact match of Last Name and First Name
+            $member_id = null;
+            $stmt = $conn->prepare("SELECT member_id FROM members WHERE last_name = ? AND first_name = ? LIMIT 1");
+            $stmt->bind_param("ss", $last, $first);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            
+            if ($res->num_rows > 0) {
+                $member_id = $res->fetch_assoc()['member_id'];
+            }
+            $stmt->close();
+
+            // Format the transaction using configurable share payment types.
+            $resolved_type = function_exists('resolveSharePaymentType') ? resolveSharePaymentType($conn, $type) : null;
+            $t_type = $resolved_type['name'] ?? ((stripos($type, 'share') !== false) ? 'Share Capital' : 'Membership Fee');
+            $share_payment_type_id = $resolved_type['id'] ?? null;
+            $status = 'COMPLETED';
+            $items_details = "Payment for " . $t_type;
+
+            // Check for duplicates (Same Date, Same Member, Same Amount, Same Type)
+            $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND member_name = ? AND amount = ? AND transaction_type = ?");
+            $check->bind_param("ssds", $t_date, $display_name, $amount, $t_type);
+            $check->execute();
+            $c_res = $check->get_result();
+
+            if ($c_res->num_rows == 0) {
+                // Insert New Share/Fee Transaction
+                $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
+                $ins->bind_param("sissidsss", $t_date, $member_id, $display_name, $t_type, $share_payment_type_id, $amount, $items_details, $reference_no, $status);
+                $ins->execute();
+                $imported_count++;
+            }
         }
-        $stmt->close();
-
-        // Format the transaction using configurable share payment types.
-        $resolved_type = function_exists('resolveSharePaymentType') ? resolveSharePaymentType($conn, $type) : null;
-        $t_type = $resolved_type['name'] ?? ((stripos($type, 'share') !== false) ? 'Share Capital' : 'Membership Fee');
-        $share_payment_type_id = $resolved_type['id'] ?? null;
-        $invoice = 'SHR-' . strtoupper(substr(md5(uniqid(rand(), true)), 0, 6)); // Auto-generate a receipt code
-        $status = 'COMPLETED';
-        $items_details = "Payment for " . $t_type;
-
-        // Check for duplicates (Same Date, Same Member, Same Amount, Same Type)
-        $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND member_name = ? AND amount = ? AND transaction_type = ?");
-        $check->bind_param("ssds", $t_date, $display_name, $amount, $t_type);
-        $check->execute();
-        $c_res = $check->get_result();
-
-        if ($c_res->num_rows == 0) {
-            // Insert New Share/Fee Transaction
-            $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
-            $ins->bind_param("sissidsss", $t_date, $member_id, $display_name, $t_type, $share_payment_type_id, $amount, $items_details, $invoice, $status);
-            $ins->execute();
-            $imported_count++;
-        }
+        $conn->commit();
+    } catch (Exception $e) {
+        $conn->rollback();
+        $_SESSION['alert_title'] = "Import Error";
+        $_SESSION['alert_message'] = $e->getMessage();
+        $_SESSION['alert_type'] = "error";
+        header("Location: member_shares.php");
+        exit();
     }
 
     if (function_exists('logActivity')) {

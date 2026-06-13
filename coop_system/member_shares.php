@@ -22,6 +22,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
     $share_type_id = (int)($_POST['share_payment_type_id'] ?? 0);
     $amount = (float)($_POST['amount'] ?? 0);
     $share_date = !empty($_POST['share_date']) ? $_POST['share_date'] : date('Y-m-d');
+    $invoice_no = trim((string)($_POST['invoice_no'] ?? ''));
 
     $stmt_member = $conn->prepare("SELECT last_name, first_name, middle_name FROM members WHERE member_id = ? LIMIT 1");
     $stmt_member->bind_param("i", $member_id);
@@ -37,9 +38,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
     $type_row = $type_res ? $type_res->fetch_assoc() : null;
     $stmt_type->close();
 
-    if (!$member_row || !$type_row || $amount <= 0 || empty($share_date)) {
+    if (!$member_row || !$type_row || $amount <= 0 || empty($share_date) || $invoice_no === '') {
         $_SESSION['alert_title'] = "Invalid Entry";
-        $_SESSION['alert_message'] = "Please select a member, payment type, and enter a valid amount.";
+        $_SESSION['alert_message'] = "Please select a member, payment type, enter a valid amount, and provide a Reference No. / Invoice No. / Receipt No.";
         $_SESSION['alert_type'] = "error";
         header("Location: member_shares.php");
         exit();
@@ -47,7 +48,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
 
     $member_name = trim($member_row['last_name'] . ', ' . $member_row['first_name'] . ' ' . ($member_row['middle_name'] ?? ''));
     $member_name = preg_replace('/\s+/', ' ', trim($member_name));
-    $invoice_no = 'SHR-MAN-' . strtoupper(substr(md5(uniqid((string)mt_rand(), true)), 0, 8));
     $items_details = 'Manual payment entry for ' . $type_row['name'];
     $payment_status = 'COMPLETED';
     $share_payment_type_id = (int)$type_row['id'];
@@ -161,6 +161,55 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     $writer->save('php://output');
     exit();
 }
+
+if (isset($_GET['template']) && $_GET['template'] === 'excel') {
+    require_once __DIR__ . '/vendor/autoload.php';
+
+    $spreadsheet = new \PhpOffice\PhpSpreadsheet\Spreadsheet();
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setTitle('Share Import Template');
+
+    $sheet->mergeCells('A1:H1');
+    $sheet->mergeCells('A2:H2');
+    $sheet->mergeCells('A3:H3');
+    $sheet->setCellValue('A1', 'Member Shares Import Template');
+    $sheet->setCellValue('A2', 'Required column: Reference No. / Invoice No. / Receipt No.');
+    $sheet->setCellValue('A3', 'Replace the sample row with your own entries before importing.');
+    $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
+    $sheet->getStyle('A1:A3')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
+    $sheet->getStyle('A1:H3')->getFont()->setName('Arial')->setSize(12);
+
+    $headers = [
+        'Date',
+        'Reference No. / Invoice No. / Receipt No.',
+        'First Name',
+        'Second Name',
+        'Middle Name',
+        'Last Name',
+        'Transaction Type',
+        'Amount'
+    ];
+    $sheet->fromArray($headers, null, 'A5');
+    $sheet->getStyle('A5:H5')->getFont()->setBold(true);
+    $sheet->getStyle('A5:H5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3E8FF');
+
+    $sheet->fromArray([
+        [date('Y-m-d'), 'REF-0001', 'Juan', '', 'D.', 'Cruz', 'Share Capital', 100.00]
+    ], null, 'A6');
+    $sheet->getStyle('H6')->getNumberFormat()->setFormatCode('#,##0.00');
+
+    foreach (range('A', 'H') as $column) {
+        $sheet->getColumnDimension($column)->setAutoSize(true);
+    }
+
+    $filename = 'Member_Shares_Import_Template.xlsx';
+    header('Content-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    header('Content-Disposition: attachment;filename="' . $filename . '"');
+    header('Cache-Control: max-age=0');
+    $writer = new \PhpOffice\PhpSpreadsheet\Writer\Xlsx($spreadsheet);
+    $writer->save('php://output');
+    exit();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -238,6 +287,10 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                         <label class="block text-sm font-medium text-gray-700 mb-1">Date <span class="text-red-500">*</span></label>
                         <input type="date" name="share_date" value="<?= htmlspecialchars(date('Y-m-d')) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                     </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reference No. / Invoice No. / Receipt No. <span class="text-red-500">*</span></label>
+                    <input type="text" name="invoice_no" required placeholder="Enter reference number" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                 </div>
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" onclick="closeShareModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
@@ -332,7 +385,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     
                     <div class="flex w-full lg:w-1/3 bg-white border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary shadow-sm">
                         <div class="px-3 py-2 text-gray-400 flex items-center justify-center"><i class="fas fa-search"></i></div>
-                        <input type="text" id="shareSearch" placeholder="Search member, invoice, or type..." class="w-full py-2 pr-4 outline-none text-sm text-gray-700 bg-transparent">
+                        <input type="text" id="shareSearch" placeholder="Search member, reference, or type..." class="w-full py-2 pr-4 outline-none text-sm text-gray-700 bg-transparent">
                     </div>
                     
                     <div class="flex flex-col sm:flex-row gap-3 w-full lg:w-auto items-center">
@@ -340,6 +393,10 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                             <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
                             <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD SHARES</button>
                         </form>
+
+                        <a href="member_shares.php?template=excel" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap text-center">
+                            <i class="fas fa-download mr-2"></i>DOWNLOAD IMPORT TEMPLATE
+                        </a>
 
                         <button type="button" onclick="openShareModal()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap">
                             <i class="fas fa-plus mr-2"></i>ADD MEMBER SHARE

@@ -831,6 +831,10 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <td class="px-4 py-2 font-mono text-xs text-green-600">Date of Transaction, Date</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Reference No. / Invoice No. / Receipt No.</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-green-600">Reference No., Invoice No., Receipt No., Ref No.</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">First Name</td>
                                             <td class="px-4 py-2 font-mono text-xs text-green-600">Member First Name, Firstname</td>
                                         </tr>
