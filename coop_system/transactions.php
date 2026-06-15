@@ -7,6 +7,200 @@ if (empty($transaction_types) && function_exists('getTransactionTypes')) {
     $transaction_types = getTransactionTypes($conn, false);
 }
 
+function getConfiguredUnitTypes(mysqli $conn): array {
+    $units = [];
+    $result = $conn->query("SELECT id, name FROM config_unit_types ORDER BY name ASC");
+    if ($result && $result->num_rows > 0) {
+        while ($row = $result->fetch_assoc()) {
+            $units[] = $row;
+        }
+    }
+    return $units;
+}
+
+function buildManualMemberName(string $first, string $second, string $middle, string $last): string {
+    $first = trim($first);
+    $second = trim($second);
+    $middle = trim($middle);
+    $last = trim($last);
+
+    if ($first === '' && $second === '' && $middle === '' && $last === '') {
+        return '';
+    }
+
+    $given = trim(preg_replace('/\s+/u', ' ', trim($first . ' ' . $second . ' ' . $middle)));
+    if ($last !== '' && $given !== '') {
+        return $last . ', ' . $given;
+    }
+    if ($last !== '') {
+        return $last;
+    }
+    return $given;
+}
+
+function buildManualItemLine(string $qty, string $unit, string $name, float $cost, ?float $amount = null): string {
+    $qty = trim($qty);
+    $unit = trim($unit);
+    $name = trim($name);
+    $parts = [];
+
+    if ($qty !== '') {
+        $parts[] = $qty . ($unit !== '' ? ' ' . $unit : '');
+    } elseif ($unit !== '') {
+        $parts[] = $unit;
+    }
+
+    if ($name !== '') {
+        $parts[] = $name;
+    }
+
+    $parts[] = '@ ₱' . number_format((float)$cost, 2);
+    if ($amount !== null) {
+        $parts[] = '= ₱' . number_format((float)$amount, 2);
+    }
+
+    return trim(implode(' ', $parts));
+}
+
+$unit_types = getConfiguredUnitTypes($conn);
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_manual_transaction_multi'])) {
+    $transaction_type_id = (int)($_POST['transaction_type_id'] ?? 0);
+    $reference_no = trim((string)($_POST['reference_no'] ?? ''));
+    $transaction_date = trim((string)($_POST['transaction_date'] ?? date('Y-m-d')));
+    $member_first_name = trim((string)($_POST['member_first_name'] ?? ''));
+    $member_second_name = trim((string)($_POST['member_second_name'] ?? ''));
+    $member_middle_name = trim((string)($_POST['member_middle_name'] ?? ''));
+    $member_last_name = trim((string)($_POST['member_last_name'] ?? ''));
+    $payment_status = trim((string)($_POST['payment_status'] ?? 'COMPLETED'));
+    $downpayment = (float)($_POST['downpayment'] ?? 0);
+    $remaining_balance = (float)($_POST['remaining_balance'] ?? 0);
+    $manual_total_amount = trim((string)($_POST['total_amount'] ?? ''));
+
+    $type_row = null;
+    foreach ($transaction_types as $type) {
+        if ((int)$type['id'] === $transaction_type_id) {
+            $type_row = $type;
+            break;
+        }
+    }
+
+    $item_names = $_POST['item_name'] ?? [];
+    $item_units = $_POST['item_unit'] ?? [];
+    $item_costs = $_POST['item_cost'] ?? [];
+    $item_quantities = $_POST['item_quantity'] ?? [];
+    $item_amounts = $_POST['item_amount'] ?? [];
+
+    if (!is_array($item_names)) $item_names = [$item_names];
+    if (!is_array($item_units)) $item_units = [$item_units];
+    if (!is_array($item_costs)) $item_costs = [$item_costs];
+    if (!is_array($item_quantities)) $item_quantities = [$item_quantities];
+    if (!is_array($item_amounts)) $item_amounts = [$item_amounts];
+
+    if (!$type_row || $reference_no === '') {
+        $_SESSION['alert_title'] = "Invalid Entry";
+        $_SESSION['alert_message'] = "Please select a transaction type and enter a reference number.";
+        $_SESSION['alert_type'] = "error";
+        header("Location: transactions.php");
+        exit();
+    }
+
+    $transaction_type = $type_row['name'];
+    $item_lines = [];
+    $computed_total = 0.0;
+    $line_count = max(count($item_names), count($item_units), count($item_costs), count($item_quantities), count($item_amounts));
+
+    for ($i = 0; $i < $line_count; $i++) {
+        $item_name = trim((string)($item_names[$i] ?? ''));
+        $item_unit = trim((string)($item_units[$i] ?? ''));
+        $item_cost = (float)($item_costs[$i] ?? 0);
+        $item_quantity = (float)($item_quantities[$i] ?? 0);
+        $item_amount = trim((string)($item_amounts[$i] ?? ''));
+
+        if ($item_name === '' && $item_unit === '' && $item_cost <= 0 && $item_quantity <= 0 && $item_amount === '') {
+            continue;
+        }
+
+        if ($item_name === '' || $item_cost <= 0 || $item_quantity <= 0) {
+            $_SESSION['alert_title'] = "Invalid Item Row";
+            $_SESSION['alert_message'] = "Please complete the item name, quantity, and cost for each transaction item.";
+            $_SESSION['alert_type'] = "error";
+            header("Location: transactions.php");
+            exit();
+        }
+
+        $resolved_amount = $item_amount !== '' ? (float)$item_amount : ($item_quantity * $item_cost);
+        $computed_total += $resolved_amount;
+        $item_lines[] = buildManualItemLine((string)$item_quantity, $item_unit, $item_name, $item_cost, $resolved_amount);
+    }
+
+    if (empty($item_lines)) {
+        $_SESSION['alert_title'] = "Invalid Entry";
+        $_SESSION['alert_message'] = "Please add at least one item row to the manual transaction.";
+        $_SESSION['alert_type'] = "error";
+        header("Location: transactions.php");
+        exit();
+    }
+
+    $amount = $manual_total_amount !== '' ? (float)$manual_total_amount : $computed_total;
+    if ($amount <= 0) {
+        $amount = $computed_total;
+    }
+    if ($remaining_balance <= 0 && $amount > 0 && $downpayment > 0) {
+        $remaining_balance = max($amount - $downpayment, 0);
+    }
+
+    $items_details = implode("\n", $item_lines);
+    $member_id = null;
+    $member_name = buildManualMemberName($member_first_name, $member_second_name, $member_middle_name, $member_last_name);
+    if ($member_name === '') {
+        $member_name = 'MANUAL ENTRY';
+    }
+    $payment_status = strtoupper($payment_status !== '' ? $payment_status : 'COMPLETED');
+
+    $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE invoice_no = ? LIMIT 1");
+    if ($check) {
+        $check->bind_param("s", $reference_no);
+        $check->execute();
+        $existing = $check->get_result();
+        if ($existing && $existing->num_rows > 0) {
+            $check->close();
+            $_SESSION['alert_title'] = "Duplicate Reference";
+            $_SESSION['alert_message'] = "The reference number already exists in the transaction records.";
+            $_SESSION['alert_type'] = "error";
+            header("Location: transactions.php");
+            exit();
+        }
+        $check->close();
+    }
+
+    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    $stmt->bind_param("sissdsssdd", $transaction_date, $member_id, $member_name, $transaction_type, $amount, $items_details, $reference_no, $payment_status, $downpayment, $remaining_balance);
+    if ($stmt->execute()) {
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'SALES',
+                'ADD MANUAL TRANSACTION',
+                'TRANSACTION',
+                $conn->insert_id,
+                $reference_no,
+                'Type: ' . $transaction_type . ', Items: ' . count($item_lines) . ', Amount: ' . number_format($amount, 2)
+            );
+        }
+        $_SESSION['alert_title'] = "Transaction Saved";
+        $_SESSION['alert_message'] = "Manual transaction saved successfully.";
+        $_SESSION['alert_type'] = "success";
+    } else {
+        $_SESSION['alert_title'] = "Database Error";
+        $_SESSION['alert_message'] = "Unable to save the manual transaction.";
+        $_SESSION['alert_type'] = "error";
+    }
+    $stmt->close();
+    header("Location: transactions.php");
+    exit();
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_manual_transaction'])) {
     $transaction_type_id = (int)($_POST['transaction_type_id'] ?? 0);
     $item_name = trim((string)($_POST['item_name'] ?? ''));
@@ -122,28 +316,27 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
     $sheet = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Transactions Template');
 
-    $sheet->mergeCells('A1:Q1');
-    $sheet->mergeCells('A2:Q2');
-    $sheet->mergeCells('A3:Q3');
+    $sheet->mergeCells('A1:P1');
+    $sheet->mergeCells('A2:P2');
+    $sheet->mergeCells('A3:P3');
     $sheet->setCellValue('A1', 'Transactions Import Template');
-    $sheet->setCellValue('A2', 'Accepted fields: transaction type, reference number, member ID / form ID / split member name fields, item fields, and status.');
-    $sheet->setCellValue('A3', 'Replace the sample row with your own data before importing.');
+    $sheet->setCellValue('A2', 'Accepted fields: date, transaction type, reference number, split member name fields, item name, quantity, item unit, item cost, item amount, total amount, downpayment, balance, and status.');
+    $sheet->setCellValue('A3', 'Use multiple rows for multiple items in the same transaction. Leave the member and transaction columns blank on continuation rows.');
     $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
     $sheet->getStyle('A1:A3')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-    $sheet->getStyle('A1:Q3')->getFont()->setName('Arial')->setSize(12);
+    $sheet->getStyle('A1:P3')->getFont()->setName('Arial')->setSize(12);
 
     $headers = [
         'Date',
         'Transaction Type',
         'Reference No. / Invoice No. / Receipt No.',
-        'Member ID',
-        'Form ID',
         'Member First Name',
         'Member Second Name',
         'Member Middle Name',
         'Member Last Name',
         'Item Name',
         'Quantity',
+        'Item Unit',
         'Item Cost',
         'Item Amount',
         'Total Amount',
@@ -152,15 +345,15 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         'Status'
     ];
     $sheet->fromArray($headers, null, 'A5');
-    $sheet->getStyle('A5:Q5')->getFont()->setBold(true);
-    $sheet->getStyle('A5:Q5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFEFF6FF');
+    $sheet->getStyle('A5:P5')->getFont()->setBold(true);
+    $sheet->getStyle('A5:P5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFEFF6FF');
 
     $sheet->fromArray([
-        [date('Y-m-d'), 'Sales', 'REF-0001', 647, '26-067', 'MILAGROSA', '', 'OTACAN', 'BATURIANO', 'Sample Item', 1, 100.00, 100.00, 100.00, 0.00, 0.00, 'COMPLETED']
+        [date('Y-m-d'), 'Sales', 'REF-0001', 'MILAGROSA', '', 'OTACAN', 'BATURIANO', 'Sample Item', 1, 'pcs', 100.00, 100.00, 100.00, 0.00, 0.00, 'COMPLETED']
     ], null, 'A6');
-    $sheet->getStyle('L6:P6')->getNumberFormat()->setFormatCode('#,##0.00');
+    $sheet->getStyle('K6:O6')->getNumberFormat()->setFormatCode('#,##0.00');
 
-    foreach (range('A', 'Q') as $column) {
+    foreach (range('A', 'P') as $column) {
         $sheet->getColumnDimension($column)->setAutoSize(true);
     }
 
@@ -263,8 +456,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 padding: 0 !important;
             }
             .tx-group {
-                break-inside: avoid;
-                page-break-inside: avoid;
+                break-inside: auto !important;
+                page-break-inside: auto !important;
             }
             .print-force-show {
                 display: block !important;
@@ -333,6 +526,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 white-space: normal !important;
                 font-family: Arial, sans-serif !important;
                 font-size: 12px !important;
+                page-break-inside: auto !important;
             }
             .tx-group th,
             .tx-group td {
@@ -345,6 +539,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 color: #111827 !important;
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
+            }
+            .tx-group thead {
+                display: table-header-group !important;
             }
         }
     </style>
@@ -369,50 +566,123 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         </div>
     </div>
 
-    <div id="manualTransactionModal" class="fixed inset-0 z-[999] hidden items-center justify-center p-4 print:hidden">
+    <div id="manualTransactionModal" class="fixed inset-0 z-[999] hidden items-center justify-center p-2 sm:p-4 print:hidden">
         <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="closeManualModal()"></div>
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-xl z-10 overflow-hidden transform transition-all">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[92vh] z-10 overflow-hidden transform transition-all flex flex-col">
             <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
                 <h3 class="font-bold text-gray-800"><i class="fas fa-plus-circle text-primary mr-2"></i>Add Manual Transaction</h3>
                 <button type="button" onclick="closeManualModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
             </div>
-            <form action="transactions.php" method="POST" class="p-6 space-y-4">
-                <input type="hidden" name="add_manual_transaction" value="1">
-                <div>
-                    <label class="block text-sm font-medium text-gray-700 mb-1">Transaction Type <span class="text-red-500">*</span></label>
-                    <select name="transaction_type_id" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
-                        <option value="" selected disabled>Select Transaction Type</option>
-                        <?php foreach ($transaction_types as $type): ?>
-                            <option value="<?= (int)$type['id'] ?>"><?= htmlspecialchars($type['name']) ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
+            <form action="transactions.php" method="POST" class="flex-1 overflow-y-auto p-6 space-y-5">
+                <input type="hidden" name="add_manual_transaction_multi" value="1">
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Item Name <span class="text-red-500">*</span></label>
-                        <input type="text" name="item_name" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Transaction Date <span class="text-red-500">*</span></label>
+                        <input type="date" name="transaction_date" value="<?= htmlspecialchars(date('Y-m-d')) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Reference No. <span class="text-red-500">*</span></label>
-                        <input type="text" name="reference_no" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Transaction Type <span class="text-red-500">*</span></label>
+                        <select name="transaction_type_id" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            <option value="" selected disabled>Select Transaction Type</option>
+                            <?php foreach ($transaction_types as $type): ?>
+                                <option value="<?= (int)$type['id'] ?>"><?= htmlspecialchars($type['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Reference No. / Invoice No. / Receipt No. <span class="text-red-500">*</span></label>
+                    <input type="text" name="reference_no" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">Member Name</label>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <input type="text" name="member_first_name" placeholder="Member First Name" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <input type="text" name="member_second_name" placeholder="Member Second Name" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <input type="text" name="member_middle_name" placeholder="Member Middle Name" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <input type="text" name="member_last_name" placeholder="Member Last Name" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                    </div>
+                </div>
+                <div class="flex items-center justify-between gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Items</label>
+                        <p class="text-xs text-gray-500 mt-1">Add one or more item rows for the same transaction.</p>
+                    </div>
+                    <button type="button" onclick="addManualItemRow()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">
+                        <i class="fas fa-plus mr-1"></i>ADD ITEM
+                    </button>
+                </div>
+                <div id="manualItemsContainer" class="space-y-3">
+                    <div class="manual-item-row rounded-xl border border-gray-200 bg-gray-50 p-4">
+                        <div class="flex items-center justify-between mb-3">
+                            <span class="text-xs font-bold uppercase tracking-wider text-gray-500">Item Row</span>
+                            <button type="button" onclick="removeManualItemRow(this)" class="text-xs font-semibold text-red-600 hover:text-red-700">Remove</button>
+                        </div>
+                        <div class="grid grid-cols-1 lg:grid-cols-5 gap-3">
+                            <div class="lg:col-span-2">
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Item Name <span class="text-red-500">*</span></label>
+                                <input type="text" name="item_name[]" required class="manual-item-input w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Quantity <span class="text-red-500">*</span></label>
+                                <input type="number" name="item_quantity[]" step="0.01" min="0.01" required oninput="recalculateManualItem(this)" class="manual-item-input w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Item Unit</label>
+                                <div class="relative">
+                                    <select name="item_unit[]" class="manual-item-input w-full appearance-none rounded-md border border-teal-200 bg-gradient-to-b from-white to-teal-50 px-4 py-2 pr-10 text-sm font-medium text-teal-900 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-400">
+                                        <option value="" selected>Choose a unit</option>
+                                        <?php foreach ($unit_types as $unit): ?>
+                                            <option value="<?= htmlspecialchars($unit['name']) ?>"><?= htmlspecialchars($unit['name']) ?></option>
+                                        <?php endforeach; ?>
+                                    </select>
+                                    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-teal-700">
+                                        <i class="fas fa-chevron-down text-xs"></i>
+                                    </div>
+                                </div>
+                                <p class="mt-1 text-[11px] text-gray-500">Units come from Database Settings and can be extended anytime.</p>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Item Cost <span class="text-red-500">*</span></label>
+                                <input type="number" name="item_cost[]" step="0.01" min="0.01" required oninput="recalculateManualItem(this)" class="manual-item-input w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Item Amount</label>
+                                <input type="number" name="item_amount[]" step="0.01" min="0" readonly class="manual-item-amount w-full rounded-md border border-gray-300 px-4 py-2 text-sm bg-gray-100 text-gray-700">
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Item Cost <span class="text-red-500">*</span></label>
-                        <input type="number" name="item_cost" step="0.01" min="0.01" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Total Amount</label>
+                        <input type="number" name="total_amount" step="0.01" min="0" readonly class="manual-total-amount w-full rounded-md border border-gray-300 px-4 py-2 text-sm bg-gray-100 text-gray-700">
                     </div>
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">Item Quantity <span class="text-red-500">*</span></label>
-                        <input type="number" name="item_quantity" step="1" min="1" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Downpayment</label>
+                        <input type="number" name="downpayment" step="0.01" min="0" oninput="recalculateManualSummary()" class="manual-downpayment w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                     </div>
-                    <div class="flex items-end">
-                        <div class="w-full rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500">
-                            Total amount is computed automatically from item cost and quantity.
-                        </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Balance</label>
+                        <input type="number" name="remaining_balance" step="0.01" min="0" readonly class="manual-balance w-full rounded-md border border-gray-300 px-4 py-2 text-sm bg-gray-100 text-gray-700">
                     </div>
                 </div>
-                <div class="flex justify-end gap-3 pt-2">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select name="payment_status" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            <option value="COMPLETED" selected>COMPLETED</option>
+                            <option value="PAID">PAID</option>
+                            <option value="PARTIALLY PAID">PARTIALLY PAID</option>
+                            <option value="PENDING">PENDING</option>
+                            <option value="CANCELLED">CANCELLED</option>
+                        </select>
+                    </div>
+                    <div class="rounded-md border border-gray-200 bg-gray-50 px-4 py-3 text-xs text-gray-500 flex items-center">
+                        Item amounts are calculated from quantity and cost, then summed into the total amount and balance.
+                    </div>
+                </div>
+                <div class="flex justify-end gap-3 pt-2 sticky bottom-0 bg-white/95 backdrop-blur-sm border-t border-gray-100 -mx-6 px-6 py-4 mt-2">
                     <button type="button" onclick="closeManualModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
                     <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-md text-sm transition-colors shadow-md">SAVE TRANSACTION</button>
                 </div>
@@ -636,11 +906,98 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         function openManualModal() {
             document.getElementById('manualTransactionModal').classList.remove('hidden');
             document.getElementById('manualTransactionModal').classList.add('flex');
+            document.body.classList.add('overflow-hidden');
+            recalculateManualSummary();
         }
 
         function closeManualModal() {
             document.getElementById('manualTransactionModal').classList.add('hidden');
             document.getElementById('manualTransactionModal').classList.remove('flex');
+            document.body.classList.remove('overflow-hidden');
+        }
+
+        function recalculateManualItem(input) {
+            const row = input.closest('.manual-item-row');
+            if (!row) {
+                return;
+            }
+
+            const qtyInput = row.querySelector('input[name="item_quantity[]"]');
+            const costInput = row.querySelector('input[name="item_cost[]"]');
+            const amountInput = row.querySelector('input[name="item_amount[]"]');
+            const quantity = parseFloat(qtyInput?.value || '0');
+            const cost = parseFloat(costInput?.value || '0');
+            const amount = (quantity > 0 && cost > 0) ? quantity * cost : 0;
+
+            amountInput.value = amount > 0 ? amount.toFixed(2) : '';
+            recalculateManualSummary();
+        }
+
+        function recalculateManualSummary() {
+            const amountInputs = document.querySelectorAll('.manual-item-amount');
+            let total = 0;
+
+            amountInputs.forEach(input => {
+                const value = parseFloat(input.value || '0');
+                if (!Number.isNaN(value)) {
+                    total += value;
+                }
+            });
+
+            const totalField = document.querySelector('.manual-total-amount');
+            const downpaymentField = document.querySelector('.manual-downpayment');
+            const balanceField = document.querySelector('.manual-balance');
+            const downpayment = parseFloat(downpaymentField?.value || '0') || 0;
+            const balance = Math.max(total - downpayment, 0);
+
+            if (totalField) {
+                totalField.value = total > 0 ? total.toFixed(2) : '';
+            }
+            if (balanceField) {
+                balanceField.value = total > 0 ? balance.toFixed(2) : '';
+            }
+        }
+
+        function addManualItemRow() {
+            const container = document.getElementById('manualItemsContainer');
+            const template = container.querySelector('.manual-item-row');
+            if (!container || !template) {
+                return;
+            }
+
+            const clone = template.cloneNode(true);
+            clone.querySelectorAll('input').forEach(input => {
+                if (input.type === 'button') {
+                    return;
+                }
+                input.value = '';
+            });
+            clone.querySelectorAll('select').forEach(select => {
+                select.selectedIndex = 0;
+            });
+            container.appendChild(clone);
+            recalculateManualSummary();
+        }
+
+        function removeManualItemRow(button) {
+            const row = button.closest('.manual-item-row');
+            const container = document.getElementById('manualItemsContainer');
+            if (!row || !container) {
+                return;
+            }
+
+            if (container.querySelectorAll('.manual-item-row').length <= 1) {
+                row.querySelectorAll('input').forEach(input => {
+                    if (input.type !== 'button') {
+                        input.value = '';
+                    }
+                });
+                recalculateManualSummary();
+                return;
+            }
+
+            row.remove();
+            recalculateManualSummary();
         }
 
         function updateTransactionPrintMeta() {
@@ -668,7 +1025,10 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             updateTransactionPrintMeta();
         }
 
-        document.addEventListener('DOMContentLoaded', filterTransactionGroups);
+        document.addEventListener('DOMContentLoaded', () => {
+            filterTransactionGroups();
+            recalculateManualSummary();
+        });
 
         // --- CUSTOM ALERT LOGIC ---
         let alertRedirectUrl = null;

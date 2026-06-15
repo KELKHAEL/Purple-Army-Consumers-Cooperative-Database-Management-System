@@ -392,19 +392,19 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                 <i class="fas fa-boxes mr-2"></i>Inventory Settings
                             </button>
                             <button onclick="switchTab('sharetypes')" id="btn-sharetypes" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-                                <i class="fas fa-tags mr-2"></i>Share Payment Settings
+                                <i class="fas fa-tags mr-2"></i>Member Payment Settings
                             </button>
                             <button onclick="switchTab('transtypes')" id="btn-transtypes" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-                                <i class="fas fa-receipt mr-2"></i>Transaction Types
+                                <i class="fas fa-receipt mr-2"></i>Transaction Settings
                             </button>
                             <button onclick="switchTab('excel')" id="btn-excel" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-                                <i class="fas fa-file-excel mr-2"></i>Excel Memberships
+                                <i class="fas fa-file-excel mr-2"></i>Membership Imports
                             </button>
                             <button onclick="switchTab('transac')" id="btn-transac" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-                                <i class="fas fa-file-invoice-dollar mr-2"></i>Excel Transactions
+                                <i class="fas fa-file-invoice-dollar mr-2"></i>Transactions Imports
                             </button>
                             <button onclick="switchTab('shares')" id="btn-shares" class="whitespace-nowrap py-4 px-1 border-b-2 font-medium text-sm transition-colors border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300">
-                                <i class="fas fa-hand-holding-usd mr-2"></i>Excel Shares
+                                <i class="fas fa-hand-holding-usd mr-2"></i>Member Payment Imports
                             </button>
                         </nav>
                     </div>
@@ -766,7 +766,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                 <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded font-semibold border border-blue-200">System Aliases</span>
                             </div>
                             <div class="p-4 overflow-x-auto">
-                                <p class="text-xs text-gray-500 mb-4">The Transactions Importer uses a Smart Engine. Use the reference and transaction type fields when available. It ignores capitalization and spaces, and it matches members using Member ID, Form ID, or the separated member name fields.</p>
+                                <p class="text-xs text-gray-500 mb-4">The Transactions Importer uses a Smart Engine. Use the reference and transaction type fields when available. It ignores capitalization and spaces, and it matches members using the separated member name fields. Repeat rows for additional items in the same transaction.</p>
                                 
                                 <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
                                     <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
@@ -787,14 +787,6 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Transaction Type</td>
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Transaction Type, Type, Category</td>
-                                        </tr>
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Member ID</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Member ID, ID</td>
-                                        </tr>
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Form ID</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Form ID, Form No</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Member First Name</td>
@@ -821,6 +813,10 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Quantity, Qty</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
+                                            <td class="px-4 py-2 font-bold text-gray-800">Item Unit</td>
+                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Item Unit, Unit, Measurement</td>
+                                        </tr>
+                                        <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Item Name / Description</td>
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Item Description, Description, Item, Items, Item Name</td>
                                         </tr>
@@ -839,10 +835,6 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Downpayment</td>
                                             <td class="px-4 py-2 font-mono text-xs text-blue-600">Downpayment Amount, Downpayment, DP</td>
-                                        </tr>
-                                        <tr class="hover:bg-gray-50">
-                                            <td class="px-4 py-2 font-bold text-gray-800">Invoice</td>
-                                            <td class="px-4 py-2 font-mono text-xs text-blue-600">Invoice, Invoice No, Receipt</td>
                                         </tr>
                                         <tr class="hover:bg-gray-50">
                                             <td class="px-4 py-2 font-bold text-gray-800">Balance</td>
@@ -1000,7 +992,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                     </div>
 
                     <div id="tab-transtypes" class="tab-content hidden">
-                        <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
+                        <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
                             <div class="bg-white rounded-xl shadow-sm border border-gray-200">
                                 <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
                                     <h3 class="font-bold text-gray-800"><i class="fas fa-receipt text-primary mr-2"></i>Transaction Types</h3>
@@ -1014,6 +1006,23 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                     </div>
                                     <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
                                         <i class="fas fa-plus mr-2"></i>ADD TYPE
+                                    </button>
+                                </form>
+                            </div>
+
+                            <div class="bg-white rounded-xl shadow-sm border border-gray-200">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-boxes-stacked text-teal-500 mr-2"></i>Item Units</h3>
+                                    <span class="text-xs bg-teal-100 text-teal-800 px-2 py-1 rounded font-semibold border border-teal-200">Configurable</span>
+                                </div>
+                                <form method="POST" class="p-4 space-y-4">
+                                    <input type="hidden" name="action" value="add_unit">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">New Item Unit</label>
+                                        <input type="text" name="new_unit" required placeholder="e.g. pcs, pieces, tray, kg, bag" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <button type="submit" class="bg-teal-500 hover:bg-teal-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                        <i class="fas fa-plus mr-2"></i>ADD UNIT
                                     </button>
                                 </form>
                             </div>

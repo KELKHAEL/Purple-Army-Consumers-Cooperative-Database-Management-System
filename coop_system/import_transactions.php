@@ -56,6 +56,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         'member_middle_name' => ['membermiddlename', 'middlename'],
         'member_last_name'   => ['memberlastname', 'lastname'],
         'qty'                => ['quantity', 'qty'],
+        'item_unit'          => ['itemunit', 'unit', 'itemmeasurement', 'measurement'],
         'item_desc'          => ['itemdescription', 'description', 'item', 'items', 'itemname'],
         'price'              => ['sellingprice', 'price', 'unitprice', 'itemcost'],
         'item_amount'        => ['amountofitem', 'itemamount'],
@@ -96,6 +97,40 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         if($p !== '') $part[] = "@ ₱" . str_replace('₱', '', $p);
         if($a !== '') $part[] = "= ₱" . str_replace('₱', '', $a);
         
+        return implode(' ', $part);
+    }
+
+    function buildItemLineWithUnit($qty, $unit, $desc, $price, $amt) {
+        $q = trim((string)$qty);
+        $u = trim((string)$unit);
+        $d = trim((string)$desc);
+        $p = trim((string)$price);
+        $a = trim((string)$amt);
+
+        if ($a === '' && $q !== '' && $p !== '') {
+            $a = (string)((float)$q * (float)$p);
+        }
+
+        if ($q === '' && $u === '' && $d === '' && $p === '' && $a === '') {
+            return null;
+        }
+
+        $part = [];
+        if ($q !== '') {
+            $part[] = trim($q . ' ' . $u);
+        } elseif ($u !== '') {
+            $part[] = $u;
+        }
+        if ($d !== '') {
+            $part[] = $d;
+        }
+        if ($p !== '') {
+            $part[] = "@ ₱" . preg_replace('/[^0-9\.\-]/', '', $p);
+        }
+        if ($a !== '') {
+            $part[] = "= ₱" . preg_replace('/[^0-9\.\-]/', '', $a);
+        }
+
         return implode(' ', $part);
     }
 
@@ -205,6 +240,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         $cell_date = getVal($row, $excel_map, 'date');
         $cell_type = getVal($row, $excel_map, 'transaction_type');
         $cell_reference = getVal($row, $excel_map, 'reference_no');
+        $cell_unit = getVal($row, $excel_map, 'item_unit');
 
         $has_member_identity = $cell_member_id !== '' || $cell_form_id !== '' || $cell_first !== '' || $cell_second !== '' || $cell_middle !== '' || $cell_last !== '';
 
@@ -225,6 +261,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 'member_middle_name' => $cell_middle,
                 'member_last_name' => $cell_last,
                 'reference_no' => $cell_reference,
+                'item_unit'    => $cell_unit,
                 'status'       => strtoupper(getVal($row, $excel_map, 'status')),
                 'items'        => [] 
             ];
@@ -233,11 +270,12 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         // Extract item details for the current block
         if ($current_idx >= 0) {
             $qty   = getVal($row, $excel_map, 'qty');
+            $unit  = getVal($row, $excel_map, 'item_unit');
             $desc  = getVal($row, $excel_map, 'item_desc');
             $price = getVal($row, $excel_map, 'price');
             $amt   = getVal($row, $excel_map, 'item_amount');
             
-            $item_line = buildItemLine($qty, $desc, $price, $amt);
+            $item_line = buildItemLineWithUnit($qty, $unit, $desc, $price, $amt);
             if ($item_line !== null) {
                 $transactions_to_save[$current_idx]['items'][] = $item_line;
             }
