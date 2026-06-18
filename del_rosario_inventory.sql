@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1
--- Generation Time: May 20, 2026 at 06:07 AM
+-- Generation Time: Jun 18, 2026 at 10:31 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -20,6 +20,85 @@ SET time_zone = "+00:00";
 --
 -- Database: `del_rosario_inventory`
 --
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `activity_logs`
+--
+
+CREATE TABLE `activity_logs` (
+  `log_id` int(11) NOT NULL,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `module` varchar(50) NOT NULL,
+  `action` varchar(100) NOT NULL,
+  `entity_type` varchar(100) DEFAULT NULL,
+  `entity_id` varchar(100) DEFAULT NULL,
+  `entity_name` varchar(255) DEFAULT NULL,
+  `details` text DEFAULT NULL,
+  `status` varchar(20) NOT NULL DEFAULT 'SUCCESS',
+  `actor_name` varchar(100) NOT NULL DEFAULT 'SYSTEM',
+  `actor_role` varchar(50) NOT NULL DEFAULT 'SYSTEM'
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `activity_logs`
+--
+
+INSERT INTO `activity_logs` (`log_id`, `created_at`, `module`, `action`, `entity_type`, `entity_id`, `entity_name`, `details`, `status`, `actor_name`, `actor_role`) VALUES
+(1, '2026-06-02 07:32:07', 'INVENTORY', 'DELETE PRODUCT', 'PRODUCT', '25', 'VANILLA', 'Removed product from master inventory. Category: Bar Soaps', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(2, '2026-06-02 07:36:26', 'INVENTORY', 'UPDATE PRODUCT', 'PRODUCT', '26', 'PAPAYA', 'Updated product details. Category: Bar Soaps, Unit: Pieces, Price: 80.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(3, '2026-06-02 07:38:44', 'INVENTORY', 'ADJUST STOCK', 'PRODUCT', '26', 'PAPAYA', 'Adjusted stock by 1 from 5 to 6', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(4, '2026-06-02 07:38:56', 'INVENTORY', 'ADJUST STOCK', 'PRODUCT', '26', 'PAPAYA', 'Adjusted stock by -1 from 6 to 5', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(5, '2026-06-02 07:39:17', 'INVENTORY', 'ADJUST STOCK', 'PRODUCT', '4', 'BUCO PANDAN', 'Adjusted stock by -9 from 10 to 1', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(6, '2026-06-03 02:38:50', 'SALES', 'ADD MEMBER SHARE', 'TRANSACTION', '17', 'LIM, AMRANA BERNARDITA DULPINA', 'Payment Type: Membership Fee, Amount: 1.00, Date: 2026-06-03', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(7, '2026-06-10 02:51:48', 'SALES', 'ADD MEMBER SHARE', 'TRANSACTION', '18', 'AMADA, DEXTER ESTOLE', 'Payment Type: Share Capital, Amount: 4,000.00, Date: 2026-06-10', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(8, '2026-06-10 02:52:09', 'SALES', 'ADD MEMBER SHARE', 'TRANSACTION', '19', 'AMADA, DEXTER ESTOLE', 'Payment Type: Membership Fee, Amount: 200.00, Date: 2026-06-10', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(9, '2026-06-13 02:07:49', 'MEMBERS', 'ADD MEMBER', 'MEMBER', '726', 'GARCIA, MIKHAEL', 'New member created with 1 beneficiary record(s).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(10, '2026-06-13 02:09:56', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 1 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(11, '2026-06-13 03:58:24', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 240 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(12, '2026-06-13 04:00:14', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 0 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(13, '2026-06-13 04:06:16', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 1 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(14, '2026-06-13 04:08:46', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 1 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(15, '2026-06-13 04:09:50', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Imported 1 share/fee transaction row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(16, '2026-06-13 05:39:28', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Processed 247 row(s); imported 2; unmatched 171; ambiguous 0; missing required 0; duplicates 74.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(17, '2026-06-13 05:55:23', 'ADMIN', 'IMPORT TRANSACTIONS', 'TRANSACTIONS', NULL, 'Bulk Transaction Import', 'Inserted 6 transaction row(s) and updated 1 existing row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(18, '2026-06-13 05:56:25', 'ADMIN', 'IMPORT SHARES', 'TRANSACTIONS', NULL, 'Bulk Share / Fee Import', 'Processed 247 row(s); imported 61; unmatched 171; ambiguous 0; missing required 0; duplicates 15.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(19, '2026-06-13 07:54:34', 'SALES', 'ADD MEMBER SHARE', 'TRANSACTION', '333', 'GARCIA, MIKHAEL VILLAFUERTE', 'Payment Type: Membership Fee, Amount: 5,000.00, Date: 2026-06-13', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(20, '2026-06-13 08:35:06', 'INVENTORY', 'ADJUST STOCK', 'PRODUCT', '18', 'CANOLA OIL', 'Adjusted stock by 10 from 4 to 14', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(21, '2026-06-13 08:36:45', 'SALES', 'OUTSOURCE CHECKOUT', 'TRANSACTION', '334', 'Indang', 'Payment Method: Others, Items: 1, Total: 320.00, Status: PENDING', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(22, '2026-06-13 08:37:23', 'INVENTORY', 'RECONCILE OUTSOURCE', 'OUTSOURCING RECORD', '12', 'Indang', 'Product ID 27, Sold: 2, Returned: 2, Method: Others', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(23, '2026-06-13 08:38:26', 'SALES', 'SALE CHECKOUT', 'TRANSACTION', '335', 'GARCIA, MIKHAEL', 'Payment Method: Pay Later, Items: 1, Total: 160.00, Status: PENDING', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(24, '2026-06-13 08:39:32', 'SALES', 'RECORD PAY LATER DOWNPAYMENT', 'TRANSACTION', '335', 'GARCIA, MIKHAEL', 'Payment received: 60.00, Remaining balance: 100.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(25, '2026-06-13 08:40:17', 'SALES', 'SALE CHECKOUT', 'TRANSACTION', '336', 'GARCIA, MIKHAEL', 'Payment Method: Pay Later, Items: 1, Total: 2,600.00, Status: PENDING', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(26, '2026-06-13 08:40:38', 'SALES', 'RECORD PAY LATER DOWNPAYMENT', 'TRANSACTION', '336', 'GARCIA, MIKHAEL', 'Payment received: 1,600.00, Remaining balance: 1,000.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(27, '2026-06-15 06:53:23', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '29', 'Datu puti', 'Added new product. Category: Condiments, Unit: Bottle, Starting Qty: 3, Price: 53.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(28, '2026-06-15 06:54:01', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '30', 'Canola oil', 'Added new product. Category: Condiments, Unit: Bottle, Starting Qty: 2, Price: 132.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(29, '2026-06-15 06:54:51', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '31', 'Ligo sardines', 'Added new product. Category: Groceries, Unit: Can, Starting Qty: 18, Price: 25.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(30, '2026-06-15 06:55:48', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '32', 'Sugar', 'Added new product. Category: Condiments, Unit: Kilo, Starting Qty: 10, Price: 80.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(31, '2026-06-15 06:57:18', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '33', 'Vanilla', 'Added new product. Category: Bar Soaps, Unit: Pieces, Starting Qty: 5, Price: 80.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(32, '2026-06-15 06:58:13', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '34', 'Papaya', 'Added new product. Category: Bar Soaps, Unit: Pieces, Starting Qty: 5, Price: 80.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(33, '2026-06-15 06:58:33', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '35', 'Charcoal', 'Added new product. Category: Bar Soaps, Unit: Pieces, Starting Qty: 5, Price: 80.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(34, '2026-06-15 06:59:00', 'INVENTORY', 'ADD PRODUCT', 'PRODUCT', '36', 'Tumbler', 'Added new product. Category: Others, Unit: Pieces, Starting Qty: 4, Price: 390.00', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(35, '2026-06-18 03:23:59', 'ADMIN', 'IMPORT TRANSACTIONS', 'TRANSACTIONS', NULL, 'Bulk Transaction Import', 'Inserted 53 transaction row(s) and updated 40 existing row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(36, '2026-06-18 04:02:22', 'ADMIN', 'IMPORT TRANSACTIONS', 'TRANSACTIONS', NULL, 'Bulk Transaction Import', 'Inserted 45 transaction row(s), overwritten 48 row(s), and skipped 0 unreadable row(s) from Excel.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(37, '2026-06-18 07:00:49', 'SETTINGS', 'DELETE TRANSACTION TYPE', 'CONFIG', '6', 'Purchase', 'Deactivated a transaction type.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(38, '2026-06-18 07:01:04', 'SETTINGS', 'ADD TRANSACTION TYPE', 'CONFIG', '6', 'Purchase', 'Added or reactivated a transaction type.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(39, '2026-06-18 07:01:13', 'SETTINGS', 'DELETE TRANSACTION TYPE', 'CONFIG', '5', 'Miscellaneous', 'Deactivated a transaction type.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(40, '2026-06-18 07:01:18', 'SETTINGS', 'DELETE TRANSACTION TYPE', 'CONFIG', '3', 'Share Capital', 'Deactivated a transaction type.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(41, '2026-06-18 07:01:29', 'SETTINGS', 'DELETE TRANSACTION TYPE', 'CONFIG', '4', 'Membership Fee', 'Deactivated a transaction type.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(42, '2026-06-18 07:24:21', 'SALES', 'SALE CHECKOUT', 'TRANSACTION', '435', 'AMADA, DEXTER', 'Payment Method: Cash, Items: 1, Total: 80.00, Status: COMPLETED\nReverted on June 18, 2026 03:33 PM from activity log #42.', 'REVERTED', 'SYSTEM', 'SYSTEM'),
+(43, '2026-06-18 07:33:49', 'SALES', 'REVERT ACTION', 'TRANSACTION', '435', 'AMADA, DEXTER', 'Reverted activity log #42 (SALE CHECKOUT).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(44, '2026-06-18 07:34:49', 'SALES', 'SALE CHECKOUT', 'TRANSACTION', '436', 'AMADA, DEXTER', 'Payment Method: Cash, Items: 1, Total: 80.00, Status: COMPLETED\nReverted on June 18, 2026 03:35 PM from activity log #44.', 'REVERTED', 'SYSTEM', 'SYSTEM'),
+(45, '2026-06-18 07:35:14', 'SALES', 'REVERT ACTION', 'TRANSACTION', '436', 'AMADA, DEXTER', 'Reverted activity log #44 (SALE CHECKOUT).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(46, '2026-06-18 07:36:17', 'SETTINGS', 'ADD UNIT', 'CONFIG', '8', 'Pair', 'Added new unit type setting.\nReverted on June 18, 2026 03:36 PM from activity log #46.', 'REVERTED', 'SYSTEM', 'SYSTEM'),
+(47, '2026-06-18 07:36:28', 'SETTINGS', 'REVERT ACTION', 'CONFIG', '8', 'Pair', 'Reverted activity log #46 (ADD UNIT).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(48, '2026-06-18 07:52:47', 'SETTINGS', 'ADD UNIT', 'CONFIG', '9', 'Bag', 'Added new unit type setting.\nReverted on June 18, 2026 03:53 PM from activity log #48.', 'REVERTED', 'SYSTEM', 'SYSTEM'),
+(49, '2026-06-18 07:53:38', 'SETTINGS', 'REVERT ACTION', 'CONFIG', '9', 'Bag', 'Reverted activity log #48 (ADD UNIT).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(50, '2026-06-18 07:53:47', 'SETTINGS', 'ADD UNIT', 'CONFIG', '10', 'Bag', 'Added new unit type setting.', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(51, '2026-06-18 07:54:01', 'SALES', 'SALE CHECKOUT', 'TRANSACTION', '437', 'AMADA, DEXTER', 'Payment Method: Cash, Items: 1, Total: 80.00, Status: COMPLETED\nReverted on June 18, 2026 03:54 PM from activity log #51.', 'REVERTED', 'SYSTEM', 'SYSTEM'),
+(52, '2026-06-18 07:54:15', 'SALES', 'REVERT ACTION', 'TRANSACTION', '437', 'AMADA, DEXTER', 'Reverted activity log #51 (SALE CHECKOUT).', 'SUCCESS', 'SYSTEM', 'SYSTEM'),
+(53, '2026-06-18 07:55:05', 'INVENTORY', 'ADJUST STOCK', 'PRODUCT', '33', 'Vanilla', 'JSON:{\"table\":\"inventory\",\"operation\":\"adjust\",\"before\":{\"current_quantity\":3},\"after\":{\"current_quantity\":5},\"delta\":2}', 'SUCCESS', 'SYSTEM', 'SYSTEM');
 
 -- --------------------------------------------------------
 
@@ -207,15 +286,9 @@ INSERT INTO `beneficiaries` (`beneficiary_id`, `member_id`, `first_name`, `middl
 (1361, 706, 'CHARITO', 'E.', 'MERCADO', '1979-11-08', 'CHILD'),
 (1362, 706, 'KEVIN', 'E.', 'MERCADO', '1990-01-07', 'CHILD'),
 (1363, 707, 'REY', 'S.', 'CRUZAT', NULL, 'HUSBAND'),
-(1364, 708, 'ALMA', 'A.', 'CENTINO', '1979-10-18', 'PARENT'),
-(1365, 708, 'ROEL', 'E.', 'CENTINO', '1974-04-09', 'PARENT'),
-(1366, 708, 'RAYMOND', 'A.', 'CENTINO', '2008-01-02', 'BROTHER'),
 (1367, 710, 'FERDINAND', 'S.', 'CRUZ', '1982-03-07', 'HUSBAND'),
 (1368, 710, 'XYRUS', 'D.', 'CRUZ', '2004-06-08', 'CHILD'),
 (1369, 710, 'XIAN', 'D.', 'CRUZ', '2018-07-16', 'CHILD'),
-(1370, 711, 'PHILIP MARCO', '', 'CABUHAT', '1995-06-02', 'HUSBAND'),
-(1371, 711, 'KYLEEN MARIE', '', 'CABUHAT', '2016-01-16', 'CHILD'),
-(1372, 711, 'KEIRAH MAUREEN', '', 'CABUHAT', '2018-01-23', 'CHILD'),
 (1373, 712, 'RAFAELZON', '', 'APOLINARIO', '2001-08-13', 'CHILD'),
 (1374, 712, 'MARIZON', '', 'APOLINARIO', '2001-08-13', 'CHILD'),
 (1375, 712, 'MARK GERZON', '', 'APOLINARIO', '2003-01-01', 'CHILD'),
@@ -250,7 +323,13 @@ INSERT INTO `beneficiaries` (`beneficiary_id`, `member_id`, `first_name`, `middl
 (1404, 723, 'REBECCA', 'C.', 'FERRER', '1966-11-11', 'WIFE'),
 (1405, 723, 'JAKE', '', 'FERRER', '2014-10-09', 'CHILD'),
 (1406, 723, 'JEROME', '', 'FERRER', '2002-09-22', 'CHILD'),
-(1407, 723, 'MARJORIE', '', 'FERRER', '1993-03-15', 'CHILD');
+(1407, 723, 'MARJORIE', '', 'FERRER', '1993-03-15', 'CHILD'),
+(1408, 724, 'ALMA', 'A.', 'CENTINO', '1979-10-18', 'PARENT'),
+(1409, 724, 'ROEL', 'E.', 'CENTINO', '1974-04-09', 'PARENT'),
+(1410, 724, 'RAYMOND', 'A.', 'CENTINO', '2008-01-02', 'BROTHER'),
+(1411, 725, 'PHILIP MARCO', '', 'CABUHAT', '1995-06-02', 'HUSBAND'),
+(1412, 725, 'KYLEEN MARIE', '', 'CABUHAT', '2016-01-16', 'CHILD'),
+(1413, 725, 'KEIRAH MAUREEN', '', 'CABUHAT', '2018-01-23', 'CHILD');
 
 -- --------------------------------------------------------
 
@@ -412,6 +491,52 @@ INSERT INTO `config_product_categories` (`id`, `name`) VALUES
 -- --------------------------------------------------------
 
 --
+-- Table structure for table `config_share_payment_types`
+--
+
+CREATE TABLE `config_share_payment_types` (
+  `id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `config_share_payment_types`
+--
+
+INSERT INTO `config_share_payment_types` (`id`, `name`, `is_active`, `created_at`) VALUES
+(1, 'Membership Fee', 1, '2026-06-03 02:20:45'),
+(2, 'Share Capital', 1, '2026-06-03 02:20:45');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `config_transaction_types`
+--
+
+CREATE TABLE `config_transaction_types` (
+  `id` int(11) NOT NULL,
+  `name` varchar(100) NOT NULL,
+  `is_active` tinyint(1) NOT NULL DEFAULT 1,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `config_transaction_types`
+--
+
+INSERT INTO `config_transaction_types` (`id`, `name`, `is_active`, `created_at`) VALUES
+(1, 'Sales', 1, '2026-06-13 07:04:01'),
+(2, 'Outsourced', 1, '2026-06-13 07:04:01'),
+(3, 'Share Capital', 0, '2026-06-13 07:04:01'),
+(4, 'Membership Fee', 0, '2026-06-13 07:04:01'),
+(5, 'Miscellaneous', 0, '2026-06-13 07:04:01'),
+(6, 'Purchase', 1, '2026-06-13 07:04:01');
+
+-- --------------------------------------------------------
+
+--
 -- Table structure for table `config_unit_types`
 --
 
@@ -431,7 +556,9 @@ INSERT INTO `config_unit_types` (`id`, `name`) VALUES
 (4, 'Pack'),
 (5, 'Tray'),
 (6, 'Can'),
-(7, 'Bottle');
+(7, 'Bottle'),
+(8, 'Pair'),
+(10, 'Bag');
 
 -- --------------------------------------------------------
 
@@ -454,31 +581,296 @@ CREATE TABLE `inventory` (
 --
 
 INSERT INTO `inventory` (`product_id`, `product_name`, `product_type`, `quantity_type`, `current_quantity`, `price`, `created_at`) VALUES
-(4, 'BUCO PANDAN', 'Rice', 'Sack', 10, 1400.00, '2026-05-19 03:44:37'),
-(5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-05-19 03:45:02'),
-(6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-05-19 03:45:29'),
-(7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-05-19 03:46:47'),
-(8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-05-19 03:47:12'),
-(9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-05-19 03:47:33'),
-(10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-05-19 03:49:35'),
-(11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-05-19 03:50:01'),
-(12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-05-19 03:50:24'),
-(13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-05-19 03:51:03'),
-(14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-05-19 03:51:57'),
-(15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-05-19 03:52:41'),
-(16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-05-19 03:53:11'),
-(17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-05-19 03:53:43'),
-(18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-05-19 03:54:01'),
-(19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-05-19 06:09:58'),
-(20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-05-19 06:11:16'),
-(21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-05-19 06:11:36'),
-(22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-05-19 06:13:00'),
-(23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-05-19 06:13:28'),
-(24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-05-19 06:17:16'),
-(25, 'VANILLA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-19 06:18:12'),
-(26, 'PAPAYa', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-19 06:18:47'),
-(27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-19 06:19:06'),
-(28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-05-19 06:19:31');
+(29, 'Datu puti', 'Condiments', 'Bottle', 3, 53.00, '2026-06-15 06:53:23'),
+(30, 'Canola oil', 'Condiments', 'Bottle', 2, 132.00, '2026-06-15 06:54:01'),
+(31, 'Ligo sardines', 'Groceries', 'Can', 18, 25.00, '2026-06-15 06:54:51'),
+(32, 'Sugar', 'Condiments', 'Kilo', 10, 80.00, '2026-06-15 06:55:48'),
+(33, 'Vanilla', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:57:18'),
+(34, 'Papaya', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:58:13'),
+(35, 'Charcoal', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:58:33'),
+(36, 'Tumbler', 'Others', 'Pieces', 4, 390.00, '2026-06-15 06:59:00');
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `inventory_daily_snapshot`
+--
+
+CREATE TABLE `inventory_daily_snapshot` (
+  `snapshot_date` date NOT NULL,
+  `product_id` int(11) NOT NULL,
+  `product_name` varchar(255) NOT NULL,
+  `product_type` varchar(100) NOT NULL,
+  `quantity_type` varchar(100) NOT NULL,
+  `quantity` int(11) NOT NULL DEFAULT 0,
+  `price` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+--
+-- Dumping data for table `inventory_daily_snapshot`
+--
+
+INSERT INTO `inventory_daily_snapshot` (`snapshot_date`, `product_id`, `product_name`, `product_type`, `quantity_type`, `quantity`, `price`, `created_at`) VALUES
+('2026-05-27', 4, 'BUCO PANDAN', 'Rice', 'Sack', 10, 1400.00, '2026-05-27 08:46:54'),
+('2026-05-27', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-05-27 08:46:54'),
+('2026-05-27', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-05-27 08:46:54'),
+('2026-05-27', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-05-27 08:46:54'),
+('2026-05-27', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-05-27 08:46:54'),
+('2026-05-27', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-05-27 08:46:54'),
+('2026-05-27', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-05-27 08:46:54'),
+('2026-05-27', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-05-27 08:46:54'),
+('2026-05-27', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-05-27 08:46:54'),
+('2026-05-27', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-05-27 08:46:54'),
+('2026-05-27', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-05-27 08:46:54'),
+('2026-05-27', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-05-27 08:46:54'),
+('2026-05-27', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-05-27 08:46:54'),
+('2026-05-27', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-05-27 08:46:54'),
+('2026-05-27', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-05-27 08:46:54'),
+('2026-05-27', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-05-27 08:46:54'),
+('2026-05-27', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-05-27 08:46:54'),
+('2026-05-27', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-05-27 08:46:54'),
+('2026-05-27', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-05-27 08:46:54'),
+('2026-05-27', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-05-27 08:46:54'),
+('2026-05-27', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-05-27 08:46:54'),
+('2026-05-27', 25, 'VANILLA', 'Bar Soaps', 'Pieces', 2, 80.00, '2026-05-27 08:46:54'),
+('2026-05-27', 26, 'PAPAYa', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-27 08:46:54'),
+('2026-05-27', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-27 08:46:54'),
+('2026-05-27', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-05-27 08:46:54'),
+('2026-05-28', 4, 'BUCO PANDAN', 'Rice', 'Sack', 10, 1400.00, '2026-05-28 03:46:20'),
+('2026-05-28', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-05-28 03:46:20'),
+('2026-05-28', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-05-28 03:46:20'),
+('2026-05-28', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-05-28 03:46:20'),
+('2026-05-28', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-05-28 03:46:20'),
+('2026-05-28', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-05-28 03:46:20'),
+('2026-05-28', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-05-28 03:46:20'),
+('2026-05-28', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-05-28 03:46:20'),
+('2026-05-28', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-05-28 03:46:20'),
+('2026-05-28', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-05-28 03:46:20'),
+('2026-05-28', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-05-28 03:46:20'),
+('2026-05-28', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-05-28 03:46:20'),
+('2026-05-28', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-05-28 03:46:20'),
+('2026-05-28', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-05-28 03:46:20'),
+('2026-05-28', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-05-28 03:46:20'),
+('2026-05-28', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-05-28 03:46:20'),
+('2026-05-28', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-05-28 03:46:20'),
+('2026-05-28', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-05-28 03:46:20'),
+('2026-05-28', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-05-28 03:46:20'),
+('2026-05-28', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-05-28 03:46:20'),
+('2026-05-28', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-05-28 03:46:20'),
+('2026-05-28', 25, 'VANILLA', 'Bar Soaps', 'Pieces', 2, 80.00, '2026-05-28 03:46:20'),
+('2026-05-28', 26, 'PAPAYa', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-28 03:46:20'),
+('2026-05-28', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-05-28 03:46:20'),
+('2026-05-28', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-05-28 03:46:20'),
+('2026-06-02', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-02 03:11:42'),
+('2026-06-02', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-02 03:11:42'),
+('2026-06-02', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-02 03:11:42'),
+('2026-06-02', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-02 03:11:42'),
+('2026-06-02', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-02 03:11:42'),
+('2026-06-02', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-02 03:11:42'),
+('2026-06-02', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-02 03:11:42'),
+('2026-06-02', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-02 03:11:42'),
+('2026-06-02', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-02 03:11:42'),
+('2026-06-02', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-02 03:11:42'),
+('2026-06-02', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-02 03:11:42'),
+('2026-06-02', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-02 03:11:42'),
+('2026-06-02', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-02 03:11:42'),
+('2026-06-02', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-02 03:11:42'),
+('2026-06-02', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-02 03:11:42'),
+('2026-06-02', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-02 03:11:42'),
+('2026-06-02', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-02 03:11:42'),
+('2026-06-02', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-02 03:11:42'),
+('2026-06-02', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-02 03:11:42'),
+('2026-06-02', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-02 03:11:42'),
+('2026-06-02', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-02 03:11:42'),
+('2026-06-02', 25, 'VANILLA', 'Bar Soaps', 'Pieces', 2, 80.00, '2026-06-02 03:11:42'),
+('2026-06-02', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-02 03:11:42'),
+('2026-06-02', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-02 03:11:42'),
+('2026-06-02', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-02 03:11:42'),
+('2026-06-03', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-03 01:56:40'),
+('2026-06-03', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-03 01:56:40'),
+('2026-06-03', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-03 01:56:40'),
+('2026-06-03', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-03 01:56:40'),
+('2026-06-03', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-03 01:56:40'),
+('2026-06-03', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-03 01:56:40'),
+('2026-06-03', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-03 01:56:40'),
+('2026-06-03', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-03 01:56:40'),
+('2026-06-03', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-03 01:56:40'),
+('2026-06-03', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-03 01:56:40'),
+('2026-06-03', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-03 01:56:40'),
+('2026-06-03', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-03 01:56:40'),
+('2026-06-03', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-03 01:56:40'),
+('2026-06-03', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-03 01:56:40'),
+('2026-06-03', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-03 01:56:40'),
+('2026-06-03', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-03 01:56:40'),
+('2026-06-03', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-03 01:56:40'),
+('2026-06-03', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-03 01:56:40'),
+('2026-06-03', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-03 01:56:40'),
+('2026-06-03', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-03 01:56:40'),
+('2026-06-03', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-03 01:56:40'),
+('2026-06-03', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-03 01:56:40'),
+('2026-06-03', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-03 01:56:40'),
+('2026-06-03', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-03 01:56:40'),
+('2026-06-04', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-04 07:47:47'),
+('2026-06-04', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-04 07:47:47'),
+('2026-06-04', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-04 07:47:47'),
+('2026-06-04', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-04 07:47:47'),
+('2026-06-04', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-04 07:47:47'),
+('2026-06-04', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-04 07:47:47'),
+('2026-06-04', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-04 07:47:47'),
+('2026-06-04', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-04 07:47:47'),
+('2026-06-04', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-04 07:47:47'),
+('2026-06-04', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-04 07:47:47'),
+('2026-06-04', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-04 07:47:47'),
+('2026-06-04', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-04 07:47:47'),
+('2026-06-04', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-04 07:47:47'),
+('2026-06-04', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-04 07:47:47'),
+('2026-06-04', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-04 07:47:47'),
+('2026-06-04', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-04 07:47:47'),
+('2026-06-04', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-04 07:47:47'),
+('2026-06-04', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-04 07:47:47'),
+('2026-06-04', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-04 07:47:47'),
+('2026-06-04', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-04 07:47:47'),
+('2026-06-04', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-04 07:47:47'),
+('2026-06-04', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-04 07:47:47'),
+('2026-06-04', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-04 07:47:47'),
+('2026-06-04', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-04 07:47:47'),
+('2026-06-05', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-05 01:46:53'),
+('2026-06-05', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-05 01:46:53'),
+('2026-06-05', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-05 01:46:53'),
+('2026-06-05', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-05 01:46:53'),
+('2026-06-05', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-05 01:46:53'),
+('2026-06-05', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-05 01:46:53'),
+('2026-06-05', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-05 01:46:53'),
+('2026-06-05', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-05 01:46:53'),
+('2026-06-05', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-05 01:46:53'),
+('2026-06-05', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-05 01:46:53'),
+('2026-06-05', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-05 01:46:53'),
+('2026-06-05', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-05 01:46:53'),
+('2026-06-05', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-05 01:46:53'),
+('2026-06-05', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-05 01:46:53'),
+('2026-06-05', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-05 01:46:53'),
+('2026-06-05', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-05 01:46:53'),
+('2026-06-05', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-05 01:46:53'),
+('2026-06-05', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-05 01:46:53'),
+('2026-06-05', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-05 01:46:53'),
+('2026-06-05', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-05 01:46:53'),
+('2026-06-05', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-05 01:46:53'),
+('2026-06-05', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-05 01:46:53'),
+('2026-06-05', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-05 01:46:53'),
+('2026-06-05', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-05 01:46:53'),
+('2026-06-08', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-08 01:56:22'),
+('2026-06-08', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-08 01:56:22'),
+('2026-06-08', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-08 01:56:22'),
+('2026-06-08', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-08 01:56:22'),
+('2026-06-08', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-08 01:56:22'),
+('2026-06-08', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-08 01:56:22'),
+('2026-06-08', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-08 01:56:22'),
+('2026-06-08', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-08 01:56:22'),
+('2026-06-08', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-08 01:56:22'),
+('2026-06-08', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-08 01:56:22'),
+('2026-06-08', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-08 01:56:22'),
+('2026-06-08', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-08 01:56:22'),
+('2026-06-08', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-08 01:56:22'),
+('2026-06-08', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-08 01:56:22'),
+('2026-06-08', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-08 01:56:22'),
+('2026-06-08', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-08 01:56:22'),
+('2026-06-08', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-08 01:56:22'),
+('2026-06-08', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-08 01:56:22'),
+('2026-06-08', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-08 01:56:22'),
+('2026-06-08', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-08 01:56:22'),
+('2026-06-08', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-08 01:56:22'),
+('2026-06-08', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-08 01:56:22'),
+('2026-06-08', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-08 01:56:22'),
+('2026-06-08', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-08 01:56:22'),
+('2026-06-10', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-10 02:51:02'),
+('2026-06-10', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-10 02:51:02'),
+('2026-06-10', 6, 'SINANDOMENG', 'Rice', 'Sack', 6, 1300.00, '2026-06-10 02:51:02'),
+('2026-06-10', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-10 02:51:02'),
+('2026-06-10', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-10 02:51:02'),
+('2026-06-10', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-10 02:51:02'),
+('2026-06-10', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-10 02:51:02'),
+('2026-06-10', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-10 02:51:02'),
+('2026-06-10', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-10 02:51:02'),
+('2026-06-10', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-10 02:51:02'),
+('2026-06-10', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-10 02:51:02'),
+('2026-06-10', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-10 02:51:02'),
+('2026-06-10', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-10 02:51:02'),
+('2026-06-10', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-10 02:51:02'),
+('2026-06-10', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 4, 132.00, '2026-06-10 02:51:02'),
+('2026-06-10', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-10 02:51:02'),
+('2026-06-10', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-10 02:51:02'),
+('2026-06-10', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-10 02:51:02'),
+('2026-06-10', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-10 02:51:02'),
+('2026-06-10', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-10 02:51:02'),
+('2026-06-10', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-10 02:51:02'),
+('2026-06-10', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-10 02:51:02'),
+('2026-06-10', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-10 02:51:02'),
+('2026-06-10', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-10 02:51:02'),
+('2026-06-13', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-13 02:08:37'),
+('2026-06-13', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-13 02:08:37'),
+('2026-06-13', 6, 'SINANDOMENG', 'Rice', 'Sack', 4, 1300.00, '2026-06-13 02:08:37'),
+('2026-06-13', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-13 02:08:37'),
+('2026-06-13', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-13 02:08:37'),
+('2026-06-13', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-13 02:08:37'),
+('2026-06-13', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-13 02:08:37'),
+('2026-06-13', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-13 02:08:37'),
+('2026-06-13', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-13 02:08:37'),
+('2026-06-13', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-13 02:08:37'),
+('2026-06-13', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-13 02:08:37'),
+('2026-06-13', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-13 02:08:37'),
+('2026-06-13', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-13 02:08:37'),
+('2026-06-13', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-13 02:08:37'),
+('2026-06-13', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 14, 132.00, '2026-06-13 02:08:37'),
+('2026-06-13', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-13 02:08:37'),
+('2026-06-13', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-13 02:08:37'),
+('2026-06-13', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-13 02:08:37'),
+('2026-06-13', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-13 02:08:37'),
+('2026-06-13', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-13 02:08:37'),
+('2026-06-13', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-13 02:08:37'),
+('2026-06-13', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 3, 80.00, '2026-06-13 02:08:37'),
+('2026-06-13', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 3, 80.00, '2026-06-13 02:08:37'),
+('2026-06-13', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-13 02:08:37'),
+('2026-06-15', 4, 'BUCO PANDAN', 'Rice', 'Sack', 1, 1400.00, '2026-06-15 00:34:50'),
+('2026-06-15', 5, 'LA ROSA', 'Rice', 'Sack', 0, 1300.00, '2026-06-15 00:34:50'),
+('2026-06-15', 6, 'SINANDOMENG', 'Rice', 'Sack', 4, 1300.00, '2026-06-15 00:34:50'),
+('2026-06-15', 7, 'EGG - MEDIUM', 'Poultry', 'Tray', 0, 0.00, '2026-06-15 00:34:50'),
+('2026-06-15', 8, 'EGG - LARGE', 'Poultry', 'Tray', 2, 230.00, '2026-06-15 00:34:50'),
+('2026-06-15', 9, 'EGG - EXTRA LARGE', 'Poultry', 'Tray', 0, 0.00, '2026-06-15 00:34:50'),
+('2026-06-15', 10, 'SUGAR - 1/4', 'Condiments', 'Pack', 10, 22.00, '2026-06-15 00:34:50'),
+('2026-06-15', 11, 'SUGAR - 1/2', 'Condiments', 'Pack', 3, 40.00, '2026-06-15 00:34:50'),
+('2026-06-15', 12, 'SUGAR - 1KG', 'Condiments', 'Kilo', 11, 80.00, '2026-06-15 00:34:50'),
+('2026-06-15', 13, 'JUFRAN KETCHUP - 560G', 'Condiments', 'Pack', 0, 42.00, '2026-06-15 00:34:50'),
+('2026-06-15', 14, 'THAI FISH SAUCE', 'Condiments', 'Bottle', 19, 50.00, '2026-06-15 00:34:50'),
+('2026-06-15', 15, 'DATU PUTI - 1L', 'Condiments', 'Bottle', 0, 53.00, '2026-06-15 00:34:50'),
+('2026-06-15', 16, 'TIMPLA SUKA', 'Condiments', 'Bottle', 16, 100.00, '2026-06-15 00:34:50'),
+('2026-06-15', 17, 'VALUE PACK - 1L', 'Condiments', 'Bottle', 0, 90.00, '2026-06-15 00:34:50'),
+('2026-06-15', 18, 'CANOLA OIL', 'Condiments', 'Bottle', 14, 132.00, '2026-06-15 00:34:50'),
+('2026-06-15', 19, 'LIGO SARDINES - 155G', 'Groceries', 'Can', 0, 25.00, '2026-06-15 00:34:50'),
+('2026-06-15', 20, 'IGAT', 'Dried Fish', 'Pack', 24, 100.00, '2026-06-15 00:34:50'),
+('2026-06-15', 21, 'MUANG', 'Dried Fish', 'Pack', 1, 80.00, '2026-06-15 00:34:50'),
+('2026-06-15', 22, 'FABRIC CONDITIONER', 'Detergents', 'Bottle', 34, 45.00, '2026-06-15 00:34:50'),
+('2026-06-15', 23, 'DETERGENT POWDER', 'Detergents', 'Bottle', 35, 45.00, '2026-06-15 00:34:50'),
+('2026-06-15', 24, 'DISHWASHING LIQUID', 'Dishwashing', 'Bottle', 34, 40.00, '2026-06-15 00:34:50'),
+('2026-06-15', 26, 'PAPAYA', 'Bar Soaps', 'Pieces', 3, 80.00, '2026-06-15 00:34:50'),
+('2026-06-15', 27, 'CHARCOAL', 'Bar Soaps', 'Pieces', 3, 80.00, '2026-06-15 00:34:50'),
+('2026-06-15', 28, 'TUMBLER', 'Others', 'Pieces', 4, 390.00, '2026-06-15 00:34:50'),
+('2026-06-15', 29, 'Datu puti', 'Condiments', 'Bottle', 3, 53.00, '2026-06-15 06:53:23'),
+('2026-06-15', 30, 'Canola oil', 'Condiments', 'Bottle', 2, 132.00, '2026-06-15 06:54:01'),
+('2026-06-15', 31, 'Ligo sardines', 'Groceries', 'Can', 18, 25.00, '2026-06-15 06:54:51'),
+('2026-06-15', 32, 'Sugar', 'Condiments', 'Kilo', 10, 80.00, '2026-06-15 06:55:48'),
+('2026-06-15', 33, 'Vanilla', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:57:18'),
+('2026-06-15', 34, 'Papaya', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:58:13'),
+('2026-06-15', 35, 'Charcoal', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-15 06:58:33'),
+('2026-06-15', 36, 'Tumbler', 'Others', 'Pieces', 4, 390.00, '2026-06-15 06:59:00'),
+('2026-06-18', 29, 'Datu puti', 'Condiments', 'Bottle', 3, 53.00, '2026-06-18 03:23:40'),
+('2026-06-18', 30, 'Canola oil', 'Condiments', 'Bottle', 2, 132.00, '2026-06-18 03:23:40'),
+('2026-06-18', 31, 'Ligo sardines', 'Groceries', 'Can', 18, 25.00, '2026-06-18 03:23:40'),
+('2026-06-18', 32, 'Sugar', 'Condiments', 'Kilo', 10, 80.00, '2026-06-18 03:23:40'),
+('2026-06-18', 33, 'Vanilla', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-18 03:23:40'),
+('2026-06-18', 34, 'Papaya', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-18 03:23:40'),
+('2026-06-18', 35, 'Charcoal', 'Bar Soaps', 'Pieces', 5, 80.00, '2026-06-18 03:23:40'),
+('2026-06-18', 36, 'Tumbler', 'Others', 'Pieces', 4, 390.00, '2026-06-18 03:23:40');
 
 -- --------------------------------------------------------
 
@@ -498,16 +890,6 @@ CREATE TABLE `inventory_outsourcing` (
   `status` varchar(50) DEFAULT 'COMPLETED',
   `quantity_returned` int(11) DEFAULT 0
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
-
---
--- Dumping data for table `inventory_outsourcing`
---
-
-INSERT INTO `inventory_outsourcing` (`record_id`, `record_date`, `product_id`, `quantity_out`, `payment_method`, `receipt_no`, `buyer_name`, `buyer_contact`, `status`, `quantity_returned`) VALUES
-(5, '2026-05-20', 13, 34, 'Others', 'OUTSOURCED', 'Unknown', NULL, 'PENDING', 0),
-(6, '2026-05-20', 15, 23, 'Others', 'OUTSOURCED', 'Unknown', NULL, 'PENDING', 0),
-(7, '2026-05-20', 17, 43, 'Others', 'OUTSOURCED', 'Unknown', NULL, 'PENDING', 0),
-(8, '2026-05-20', 19, 262, 'Others', 'OUTSOURCED', 'Unknown', NULL, 'PENDING', 0);
 
 -- --------------------------------------------------------
 
@@ -605,10 +987,8 @@ INSERT INTO `members` (`member_id`, `form_id`, `first_name`, `middle_name`, `las
 (705, '26-037', 'CONCEPCION', 'CHALAN', 'ZABALA', '1966-12-08', 'TANZA, CAVITE', 'SINGLE', 'CATHOLIC', 'FEMALE', '', '', '123-219-429-00000', '4108', '', '', 'HIGHSCHOOL GRADUATE', '', 'SCRAP BUYING', '', '2026-05-19 01:44:01'),
 (706, '26-046', 'NATIVIDAD', 'EBORA', 'MERCADO', '1955-06-20', 'TAYSAN BATANGAS', 'MARRIED', 'CATHOLIC', 'FEMALE', '', '', '', '4108', '0317 CALLE 30 BAGTAS TANZA', '', 'ELEMENTARY GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (707, NULL, 'LORELI', 'GUIRIBA', 'CRUZAT', '1983-06-24', 'CAMALIG ALBAY', 'MARRIED', '', 'FEMALE', '', '', '', '4108', 'PHASE 1 BLOCK 8 LOT 15 LUMINA  HOMES BAGTAS', '', '', '', '', '', '2026-05-19 01:44:10'),
-(708, '26-076', 'RAMON MIGUEL', 'ALTAMIA', 'CENTINO', '2001-11-08', 'PASIG CITY', 'SINGLE', 'CATHOLIC', 'MALE', '', '', '', '4108', 'BLOCK 4 LOT 42 SECTION 35 BELLEVIEW MEADOWS BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (709, NULL, 'LEA', 'D.', 'CAREL', '1985-08-17', 'GENERAL TRIAS CAVITE', 'MARRIED', '', 'FEMALE', '', '', '286-776-000', '4108', 'BLOCK 6 LOT 1 HIDDEN BROOKE EXECUTIVE VILLAGE AMAYA 2 TANZA CAVITE', '', '', '', '', '', '2026-05-19 01:44:10'),
 (710, '25-012', 'SHARON', '', 'DELA CRUZ', '1983-01-24', 'MASBATE', 'MARRIED', 'BORN AGAIN CHRIST', 'FEMALE', '', '', '300-778-829-00000', '4108', 'BLOCK 20 LOT 10 PHASE 1 SANJA MAYOR SUB. TANZA CAVITE', '', 'COLLEGE UNDERGRADUATE', '', '', '', '2026-05-19 01:44:10'),
-(711, '26-105', 'MARIE PAZ', 'TENEDERO', 'CABUHAT', '1993-08-06', 'TONDO, MANILA', 'MARRIED', 'CATHOLIC', 'FEMALE', '', '', '', '4108', 'BLOCK 8 LOT 8 SECTION 18 PHASE 2 PABAHAY BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (712, '26-103', 'MARIFI', 'MEDINA', 'CAMPANER', '1982-02-05', 'MANILA', 'SINGLE', 'CATHOLIC', 'FEMALE', '', '0033-663-0701-7', '', '4108', 'SPRINGTOWN VILLAS PH2 BLOCK 95 LOT 25, BUCAL, TANZA, CAVITE', '', 'HIGHSCHOOL GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (713, '26-040', 'LETICIA', 'HORNACHO', 'COSTA', '1975-02-25', 'MANILA', 'MARRIED', 'CATHOLIC', 'FEMALE', '', '', '', '4108', '0509 PARADAHAN 1 TANZA CAVITE', '', 'VOCATIONAL GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (714, NULL, 'JOSEFINA', 'BARTOLOME', 'DORMIDO', '1971-11-23', 'CAUAYAN ISABELA', 'MARRIED', 'CHRISTIAN', 'FEMALE', '', '', '', '4108', 'BLOCK 12 LOT 8 SECTION 17 PH2 PABAHAY BAGTAS TANZA CAVITE', '', 'HIGHSCHOOL GRADUATE', '', '', '', '2026-05-19 01:44:10'),
@@ -620,7 +1000,9 @@ INSERT INTO `members` (`member_id`, `form_id`, `first_name`, `middle_name`, `las
 (720, '25-013', 'EMELINA', 'TOLEDO', 'DILIDILI', '1970-06-26', 'TRES CRUSES TANZA CAVITE', '', 'CATHOLIC', 'FEMALE', '', '', '', '4108', 'TRES CRUSES TANZA CAVITE', '', 'COLLEGE GRADUATE', '', '', '', '2026-05-19 01:44:10'),
 (721, NULL, 'LUCIA', 'R.', 'DALAY', '1976-04-17', 'SALCEDO EASTERN SAMAR', 'MARRIED', '', 'FEMALE', '', '', '', '4108', 'SANJA MAYOR TANZA CAVITE', '', '', '', '', '', '2026-05-19 01:44:10'),
 (722, NULL, 'RHESA', 'MALAYO', 'DE GUZMAN', '1979-01-22', 'AGBALUTO ROMBLON', 'MARRIED', '', 'FEMALE', '', '', '', '4108', 'BLOCK 54 LOT 24 PHASE 1 LUMINA HOMES BAGTAS TANZA CAVITE', '', '', '', '', '', '2026-05-19 01:44:10'),
-(723, '26-088', 'LAUDEMAR', 'REAL', 'FERRER', '1963-12-26', 'BAIS NEGROS', 'MARRIED', 'CATHOLIC', 'MALE', '', '33-0287347-9', '172-8854-88', '4108', 'BLOCK 21 LOT 1 PHASE 1 B CARRISA HOMES BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUTE', '', '', '', '2026-05-19 01:44:10');
+(723, '26-088', 'LAUDEMAR', 'REAL', 'FERRER', '1963-12-26', 'BAIS NEGROS', 'MARRIED', 'CATHOLIC', 'MALE', '', '33-0287347-9', '172-8854-88', '4108', 'BLOCK 21 LOT 1 PHASE 1 B CARRISA HOMES BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUTE', '', '', '', '2026-05-19 01:44:10'),
+(724, '26-076', 'RAMON MIGUEL', 'ALTAMIA', 'CENTINO', '2001-11-08', 'PASIG CITY', 'SINGLE', 'CATHOLIC', 'MALE', '', '', '', '4108', 'BLOCK 4 LOT 42 SECTION 35 BELLEVIEW MEADOWS BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUATE', '', '', '', '2026-05-21 06:46:12'),
+(725, '26-105', 'MARIE PAZ', 'TENEDERO', 'CABUHAT', '1993-08-06', 'TONDO, MANILA', 'MARRIED', 'CATHOLIC', 'FEMALE', '', '', '', '4108', 'BLOCK 8 LOT 8 SECTION 18 PHASE 2 PABAHAY BAGTAS TANZA CAVITE', '', 'COLLEGE GRADUATE', '', '', '', '2026-05-21 06:46:12');
 
 -- --------------------------------------------------------
 
@@ -634,6 +1016,7 @@ CREATE TABLE `transactions` (
   `transaction_date` date NOT NULL,
   `member_name` varchar(255) NOT NULL,
   `transaction_type` varchar(100) NOT NULL,
+  `share_payment_type_id` int(11) DEFAULT NULL,
   `amount` decimal(10,2) NOT NULL,
   `items_details` text DEFAULT NULL,
   `invoice_no` varchar(100) DEFAULT NULL,
@@ -647,13 +1030,179 @@ CREATE TABLE `transactions` (
 -- Dumping data for table `transactions`
 --
 
-INSERT INTO `transactions` (`transaction_id`, `member_id`, `transaction_date`, `member_name`, `transaction_type`, `amount`, `items_details`, `invoice_no`, `payment_status`, `downpayment`, `remaining_balance`, `created_at`) VALUES
-(12, 658, '2026-03-03', 'Lim, Amrana Bernardita Dulpina', 'PURCHASE', 1990.00, '1x Paradise Blouse @ ₱390 = ₱390\n1x Terno @ ₱750 = ₱750\n1x Mardi T/S @ ₱600 = ₱600\n1x Tiger Balm @ ₱250 = ₱250', '', 'PAID', 0.00, 0.00, '2026-05-19 03:34:31'),
-(13, NULL, '2026-05-20', 'Unknown', 'OUTSOURCED', 13067.00, '34x JUFRAN KETCHUP - 560G @ ₱42 = ₱1428\\n23x DATU PUTI - 1L @ ₱53 = ₱1219\\n43x VALUE PACK - 1L @ ₱90 = ₱3870\\n262x LIGO SARDINES - 155G @ ₱25 = ₱6550', 'OUTSOURCED', 'PENDING', 0.00, 13067.00, '2026-05-20 02:47:54');
+INSERT INTO `transactions` (`transaction_id`, `member_id`, `transaction_date`, `member_name`, `transaction_type`, `share_payment_type_id`, `amount`, `items_details`, `invoice_no`, `payment_status`, `downpayment`, `remaining_balance`, `created_at`) VALUES
+(272, 662, '2026-02-05', 'MERCADO, CHARITO EBORA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '48', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(273, 650, '2026-01-25', 'ARAñAS, REBECCA ARIGO', 'Share Capital', 2, 4000.00, 'Payment for Share Capital', '52', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(274, 696, '2026-01-25', 'SOLAYAO, ADELINA ARIGO', 'Share Capital', 2, 4000.00, 'Payment for Share Capital', '57', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(275, 705, '2026-01-25', 'ZABALA, CONCEPCION CHALAN', 'Share Capital', 2, 4000.00, 'Payment for Share Capital', '58', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(276, 690, '2026-01-25', 'ROBLES, EMMANUEL OCIANA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '59', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(277, 655, '2026-01-25', 'BARRIENTOS, LUCITA MENDOZA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '60', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(278, 706, '2026-01-25', 'MERCADO, NATIVIDAD EBORA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '70', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(279, 686, '2026-01-25', 'QUINTANA, LEAH POLLAROSTE', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '71', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(280, 673, '2026-01-25', 'GIMAO, ELSA GRANADO', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '76', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(281, 682, '2026-01-25', 'PANAYAMAN, ROWENA MAMALUMPONG', 'Share Capital', 2, 3000.00, 'Payment for Share Capital', '79', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(282, 671, '2026-01-25', 'GUARIN, REYNAFEL NOGIZA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '80', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(283, 681, '2026-01-25', 'PRIJOLES, JOEL LAXINA', 'Share Capital', 2, 10000.00, 'Payment for Share Capital', '81', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(284, 669, '2026-01-25', 'VILLANUEVA, JOCELYN RODELOS', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '84', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(285, 713, '2026-01-25', 'COSTA, LETICIA HORNACHO', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '90', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(286, 651, '2026-01-25', 'ARADO, ZENAIDA ARIGO', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '91', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(287, 717, '2026-01-25', 'DELA CUEVA, REDENTOR DELORA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '94', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(288, 675, '2026-01-25', 'HORARIO, CATHERINE ARMINTIA', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '96', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(289, 682, '2026-01-25', 'PANAYAMAN, ROWENA MAMALUMPONG', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '104', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(290, 699, '2026-01-25', 'SALVADOR, EMMA RAMIREZ', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '109', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(291, 719, '2026-01-25', 'DELA PEñA, JENNELYN ALINDUGAN', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '110', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(292, 650, '2026-01-25', 'ARAñAS, REBECCA ARIGO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '115', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(293, 663, '2026-01-25', 'MAGLIAN, MARIBEL SARMIENTO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '116', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(294, 696, '2026-01-25', 'SOLAYAO, ADELINA ARIGO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '119', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(295, 705, '2026-01-25', 'ZABALA, CONCEPCION CHALAN', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '120', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(296, 690, '2026-01-25', 'ROBLES, EMMANUEL OCIANA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '121', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(297, 655, '2026-01-25', 'BARRIENTOS, LUCITA MENDOZA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '122', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(298, 713, '2026-01-25', 'COSTA, LETICIA HORNACHO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '123', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(299, 651, '2026-01-25', 'ARADO, ZENAIDA ARIGO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '124', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(300, 706, '2026-01-25', 'MERCADO, NATIVIDAD EBORA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '129', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(301, 656, '2026-01-09', 'BOBADILLA, ARMINDA VIRAY', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '142', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(302, 720, '2026-01-09', 'DILIDILI, EMELINA TOLEDO', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '147', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(303, 699, '2026-02-09', 'SALVADOR, EMMA RAMIREZ', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '177', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(304, 686, '2026-01-25', 'QUINTANA, LEAH POLLAROSTE', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '188', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(305, 684, '2026-01-25', 'PAPIO, FE REPUYA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '190', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(306, 689, '2026-01-25', 'RONQUILLO, ANALYN ANDAL', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '192', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(307, 673, '2026-01-25', 'GIMAO, ELSA GRANADO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '193', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(308, 666, '2026-01-25', 'NUESTRO, MARLON MABANTASAG', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '195', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(309, 682, '2026-01-25', 'PANAYAMAN, ROWENA MAMALUMPONG', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '196', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(310, 671, '2026-01-25', 'GUARIN, REYNAFEL NOGIZA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '197', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(311, 681, '2026-01-25', 'PRIJOLES, JOEL LAXINA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '198', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(312, 669, '2026-01-25', 'VILLANUEVA, JOCELYN RODELOS', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '199', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(313, 656, '2026-01-09', 'BOBADILLA, ARMINDA VIRAY', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '210', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(314, 720, '2026-01-09', 'DILIDILI, EMELINA TOLEDO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '213', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(315, 675, '2026-01-09', 'HORARIO, CATHERINE ARMINTIA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '216', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(316, 692, '2026-01-09', 'SOLIMAN, GINA BETIA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '227', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(317, 702, '2026-02-20', 'VILLALON, MARIA SHELLA MADRDEJO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '235', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(318, 659, '2026-02-20', 'MALASAN, ZALDY ABAD', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '236', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(319, 700, '2026-02-20', 'SALVADOR, MA. VICTORIA CABUHAT', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '240', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(320, 724, '2026-02-20', 'CENTINO, RAMON MIGUEL ALTAMIA', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '241', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(321, 695, '2026-02-20', 'SARDILLA, ARCHIE EUSEBIO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '242', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(322, 704, '2026-02-20', 'VASQUEZ, ANALISA EUSEBIO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '243', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(323, 648, '2026-02-20', 'ANGKICO, RAYMOND ARMIJO', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '244', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(324, 649, '2026-02-22', 'ARMIJO, JOHN CEDRIC ESTADARTE', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '248', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(325, 685, '2026-02-22', 'PADUA, AARON STEVEN TULAY', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '252', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(326, 714, '2026-02-22', 'DORMIDO, JOSEFINA BARTOLOME', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '253', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(327, 723, '2026-02-22', 'FERRER, LAUDEMAR REAL', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '255', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(328, 658, '2026-02-22', 'LIM, AMRANA BERNARDITA DULPINA', 'Share Capital', 2, 500.00, 'Payment for Share Capital', '256', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(329, 717, '2026-02-22', 'DELA CUEVA, REDENTOR DELORA', 'Share Capital', 2, 3000.00, 'Payment for Share Capital', '271', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(330, 689, '2026-02-22', 'RONQUILLO, ANALYN ANDAL', 'Membership Fee', 1, 200.00, 'Payment for Membership Fee', '272', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(331, 699, '2026-02-22', 'SALVADOR, EMMA RAMIREZ', 'Share Capital', 2, 1000.00, 'Payment for Share Capital', '305', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(332, 680, '2026-02-22', 'LADISLA, ANNALIZA TANILON', 'Share Capital', 2, 500.00, 'Payment for Share Capital', '307', 'COMPLETED', 0.00, 0.00, '2026-06-13 05:56:25'),
+(337, NULL, '2026-03-29', 'Salvador, Maria Victoria', 'Sales', NULL, 5600.00, '4 Sack Rice @ ₱1400.00 = ₱5600.00', '236', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(338, NULL, '2026-03-29', 'Calibo, Cherry', 'Sales', NULL, 7200.00, '6 Sack Rice @ ₱1200.00 = ₱7200.00', '237', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(339, NULL, '2026-03-29', 'Salvador, Bek', 'Sales', NULL, 185.00, '1 Tray Egg @ ₱185.00 = ₱185.00', '238', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(340, 682, '2026-03-29', 'PANAYAMAN, ROWENA MAMALUMPONG', 'Sales', NULL, 1400.00, '1 Sack Rice @ ₱1400.00 = ₱1400.00', '239', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(341, NULL, '2026-03-27', 'Bamba, Berna', 'Sales', NULL, 140.00, '1 Pieces Chicharon @ ₱140.00 = ₱140.00', '232', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(342, NULL, '2026-03-27', 'Morales, Maricel', 'Sales', NULL, 420.00, '3 Pieces Chicharon @ ₱140.00 = ₱420.00', '233', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(343, NULL, '2026-03-27', 'Morales, Maricel', 'Sales', NULL, 980.00, '7 Pieces Chicharon @ ₱140.00 = ₱980.00', '234', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(344, 674, '2026-03-26', 'GARCIA, MICHELLE FRANCISCO', 'Sales', NULL, 80.00, '2 Bottle Fab-Con @ ₱40.00 = ₱80.00', '230', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(345, NULL, '2026-03-26', 'Colon, Maria Eda', 'Sales', NULL, 100.00, '4 Pieces Sardines @ ₱25.00 = ₱100.00', '231', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(346, 682, '2026-03-25', 'PANAYAMAN, ROWENA MAMALUMPONG', 'Sales', NULL, 2800.00, '2 Sack Rice @ ₱1400.00 = ₱2800.00', '229', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(347, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 50.00, '1 Pieces Clothes @ ₱50.00 = ₱50.00', '203', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(348, 699, '2026-03-22', 'SALVADOR, EMMA RAMIREZ', 'Purchase', NULL, 120.00, '1 Pieces Clothes @ ₱120.00 = ₱120.00', '203', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(349, 699, '2026-03-22', 'SALVADOR, EMMA RAMIREZ', 'Purchase', NULL, 100.00, '1 Pieces Clothes @ ₱100.00 = ₱100.00', '204', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(350, NULL, '2026-03-22', 'Cruz, Sharon', 'Purchase', NULL, 200.00, '2 Pieces Clothes @ ₱100.00 = ₱200.00', '205', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(351, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 100.00, '1 Pieces Clothes @ ₱100.00 = ₱100.00', '207', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(352, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 200.00, '1 Pieces Clothes @ ₱200.00 = ₱200.00', '208', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(353, NULL, '2026-03-22', 'Legaspi, Maricel', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '209', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(354, NULL, '2026-03-22', 'Maclay, Virginia', 'Sales', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '210', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(355, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 140.00, '1 Pack Chicharon @ ₱140.00 = ₱140.00', '211', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(356, NULL, '2026-03-22', 'Void', 'Sales', NULL, 80.00, '1 Pack Asukal @ ₱80.00 = ₱80.00', '212', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(357, NULL, '2026-03-22', 'Void', 'Sales', NULL, 120.00, '1 Pack Dried Fish @ ₱120.00 = ₱120.00', '213', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(358, NULL, '2026-03-22', 'Void', 'Sales', NULL, 120.00, '1 Pack Dried Fish @ ₱120.00 = ₱120.00', '214', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(359, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '215', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(360, NULL, '2026-03-22', 'Arcis, Marifer', 'Sales', NULL, 100.00, '1 Bottle Vinegar @ ₱100.00 = ₱100.00', '216', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(361, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 200.00, '1 Pieces Clothes @ ₱200.00 = ₱200.00', '217', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(362, NULL, '2026-03-22', 'Void', 'Sales', NULL, 45.00, '1 Bottle Dishwashing @ ₱45.00 = ₱45.00', '218', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(363, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 40.00, '1 Bottle Fab-Con @ ₱40.00 = ₱40.00', '219', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(364, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 100.00, '1 Pieces Clothes @ ₱100.00 = ₱100.00', '220', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(365, NULL, '2026-03-22', 'De Guzman, Risa', 'Sales', NULL, 45.00, '1 Bottle Dishwashing @ ₱45.00 = ₱45.00', '221', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(366, 699, '2026-03-22', 'SALVADOR, EMMA RAMIREZ', 'Sales', NULL, 40.00, '1 Bottle Fab-Con @ ₱40.00 = ₱40.00', '222', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(367, NULL, '2026-03-22', 'Morales, Maricel', 'Sales', NULL, 140.00, '1 Pack Chicharon @ ₱140.00 = ₱140.00', '223', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(368, NULL, '2026-03-22', 'Legaspi, Maricel', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '224', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(369, NULL, '2026-03-22', 'Void', 'Sales', NULL, 100.00, '1 Bottle Vinegar @ ₱100.00 = ₱100.00', '225', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(370, NULL, '2026-03-22', 'Legaspi, Puring', 'Sales', NULL, 280.00, '2 Pack Chicharon @ ₱140.00 = ₱280.00', '226', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(371, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '227', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(372, NULL, '2026-03-22', 'Cruz, Sharon', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '228', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(373, NULL, '2026-03-20', 'Ferrer, Rebecca', 'Sales', NULL, 1000.00, '5 Tray Egg @ ₱200.00 = ₱1000.00', '194', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(374, NULL, '2026-03-20', 'Salvador, Maria Victoria', 'Sales', NULL, 7000.00, '5 Sack Rice @ ₱1400.00 = ₱7000.00', '195', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(375, NULL, '2026-03-20', 'Garcia, Michelle T', 'Sales', NULL, 80.00, '1 Pack Detergent @ ₱80.00 = ₱80.00', '196', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(376, NULL, '2026-03-20', 'Orate, Yolanda', 'Sales', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '198', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(377, NULL, '2026-03-20', 'Malasan, Zaldy A', 'Sales', NULL, 1400.00, '1 Sack Rice @ ₱1400.00 = ₱1400.00', '200', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(378, NULL, '2026-03-19', 'Gesta, Helena', 'Sales', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '191', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(379, 692, '2026-03-19', 'SOLIMAN, GINA BETIA', 'Purchase', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '192', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(380, NULL, '2026-03-19', 'Colon, Maria Eda', 'Sales', NULL, 80.00, '2 Pack Detergent Soap @ ₱80.00 = ₱80.00', '193', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(381, 699, '2026-03-19', 'SALVADOR, EMMA RAMIREZ', 'Sales', NULL, 1050.00, '5 Tray Egg @ ₱210.00 = ₱1050.00', '197', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(382, NULL, '2026-03-18', 'Portuguese, Vrian Andrew', 'Sales', NULL, 240.00, '1 Tray Egg @ ₱240.00 = ₱240.00', '189', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(383, NULL, '2026-03-18', 'Armijo, Airene', 'Sales', NULL, 28000.00, '20 Sack Rice @ ₱1400.00 = ₱28000.00', '190', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(384, NULL, '2026-03-17', 'Armijo, Airene', 'Sales', NULL, 46900.00, '35 Sack Rice @ ₱1340.00 = ₱46900.00', '186', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(385, NULL, '2026-03-17', 'Diaz, Maricris T', 'Sales', NULL, 70.00, '1 Kilo Asukal @ ₱70.00 = ₱70.00', '187', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(386, 720, '2026-03-17', 'DILIDILI, EMELINA TOLEDO', 'Sales', NULL, 120.00, '1 Pack Tuyo @ ₱120.00 = ₱120.00', '188', 'PAID', 0.00, 0.00, '2026-06-18 03:23:59'),
+(387, NULL, '2026-03-16', 'Delos Santos, Joann A', 'Sales', NULL, 630.00, '3 Tray Egg @ ₱210.00 = ₱630.00', '183', '', 0.00, 0.00, '2026-06-18 03:23:59'),
+(388, NULL, '2026-03-16', 'Amada, Dexter E', 'Sales', NULL, 1340.00, '1 Sack Rice @ ₱1340.00 = ₱1340.00', '184', '', 0.00, 0.00, '2026-06-18 03:23:59'),
+(389, NULL, '2026-03-16', 'Araracap, Julia', 'Sales', NULL, 70.00, '1 Kilo Asukal @ ₱70.00 = ₱70.00', '185', '', 0.00, 0.00, '2026-06-18 03:23:59'),
+(390, NULL, '2026-03-26', 'Colon, Maria Eda', 'Sales', NULL, 80.00, '2 Bottle Fab-Con @ ₱40.00 = ₱80.00', '231', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(391, NULL, '2026-03-26', 'Colon, Maria Eda', 'Sales', NULL, 80.00, '1 Pack Detergent Soap @ ₱80.00 = ₱80.00', '231', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(392, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 70.00, '1 Pieces Clothes @ ₱70.00 = ₱70.00', '203', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(393, 699, '2026-03-22', 'SALVADOR, EMMA RAMIREZ', 'Purchase', NULL, 600.00, '4 Pieces Clothes @ ₱150.00 = ₱600.00', '203', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(394, NULL, '2026-03-22', 'Cruz, Sharon', 'Purchase', NULL, 150.00, '1 Pieces Clothes @ ₱150.00 = ₱150.00', '205', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(395, NULL, '2026-03-22', 'Legaspi, Maricel', 'Purchase', NULL, 120.00, '1 Pieces Clothes @ ₱120.00 = ₱120.00', '209', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(396, NULL, '2026-03-22', 'Legaspi, Maricel', 'Purchase', NULL, 50.00, '1 Pieces Clothes @ ₱50.00 = ₱50.00', '209', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(397, NULL, '2026-03-22', 'Maclay, Virginia', 'Sales', NULL, 140.00, '1 Pack Chicharon @ ₱140.00 = ₱140.00', '210', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(398, NULL, '2026-03-22', 'Maclay, Virginia', 'Purchase', NULL, 125.00, '5 Pieces Lip @ ₱25.00 = ₱125.00', '210', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(399, NULL, '2026-03-22', 'Maclay, Virginia', 'Purchase', NULL, 50.00, '1 Pieces Clothes @ ₱50.00 = ₱50.00', '210', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(400, NULL, '2026-03-22', 'Maclay, Virginia', 'Purchase', NULL, 80.00, '1 Pieces Clothes @ ₱80.00 = ₱80.00', '210', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(401, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 50.00, '1 Pieces Clothes @ ₱50.00 = ₱50.00', '211', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(402, NULL, '2026-03-22', 'Void', 'Sales', NULL, 230.00, '1 Tray Egg @ ₱230.00 = ₱230.00', '211', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(403, NULL, '2026-03-22', 'Void', 'Sales', NULL, 140.00, '1 Pack Chicharon @ ₱140.00 = ₱140.00', '211', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(404, NULL, '2026-03-22', 'Void', 'Sales', NULL, 160.00, '2 Pack Asukal @ ₱80.00 = ₱160.00', '213', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(405, NULL, '2026-03-22', 'Void', 'Sales', NULL, 100.00, '1 Bottle Vinegar @ ₱100.00 = ₱100.00', '213', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(406, NULL, '2026-03-22', 'Void', 'Sales', NULL, 200.00, '2 Pack Dried Fish @ ₱100.00 = ₱200.00', '213', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(407, NULL, '2026-03-22', 'Arcis, Marifer', 'Sales', NULL, 140.00, '1 Pack Chicharon @ ₱140.00 = ₱140.00', '216', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(408, NULL, '2026-03-22', 'Arcis, Marifer', 'Sales', NULL, 230.00, '1 Tray Egg @ ₱230.00 = ₱230.00', '216', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(409, NULL, '2026-03-22', 'Arcis, Marifer', 'Sales', NULL, 80.00, '1 Pack Asukal @ ₱80.00 = ₱80.00', '216', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(410, NULL, '2026-03-22', 'Void', 'Sales', NULL, 130.00, '1 Bottle Canola Oil @ ₱130.00 = ₱130.00', '218', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(411, NULL, '2026-03-22', 'Void', 'Purchase', NULL, 160.00, '2 Pieces Clothes @ ₱80.00 = ₱160.00', '219', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(412, NULL, '2026-03-22', 'Void', 'Sales', NULL, 40.00, '1 Bottle Fab-Con @ ₱40.00 = ₱40.00', '219', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(413, NULL, '2026-03-22', 'De Guzman, Risa', 'Sales', NULL, 40.00, '1 Bottle Fab-Con @ ₱40.00 = ₱40.00', '221', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(414, NULL, '2026-03-22', 'Morales, Maricel', 'Sales', NULL, 1000.00, '10 Sack Rice @ ₱100.00 = ₱1000.00', '223', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(415, NULL, '2026-03-20', 'Garcia, Michelle T', 'Sales', NULL, 1340.00, '1 Sack Rice @ ₱1340.00 = ₱1340.00', '196', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(416, NULL, '2026-03-20', 'Orate, Yolanda', 'Sales', NULL, 8400.00, '6 Sack Rice @ ₱1400.00 = ₱8400.00', '198', 'PAID', 0.00, 0.00, '2026-06-18 04:02:21'),
+(417, NULL, '2026-03-19', 'Gesta, Helena', 'Sales', NULL, 240.00, '1 Tray Egg @ ₱240.00 = ₱240.00', '191', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(418, 692, '2026-03-19', 'SOLIMAN, GINA BETIA', 'Purchase', NULL, 800.00, '1 Pieces Clothes @ ₱800.00 = ₱800.00', '192', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(419, 692, '2026-03-19', 'SOLIMAN, GINA BETIA', 'Purchase', NULL, 390.00, '1 Pieces Clothes @ ₱390.00 = ₱390.00', '192', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(420, 692, '2026-03-19', 'SOLIMAN, GINA BETIA', 'Sales', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '192', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(421, 699, '2026-03-19', 'SALVADOR, EMMA RAMIREZ', 'Sales', NULL, 2800.00, '2 Sack Rice @ ₱1400.00 = ₱2800.00', '197', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(422, 699, '2026-03-19', 'SALVADOR, EMMA RAMIREZ', 'Sales', NULL, 400.00, '2 Tray Egg @ ₱200.00 = ₱400.00', '197', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(423, NULL, '2026-03-18', 'Portuguese, Vrian Andrew', 'Sales', NULL, 210.00, '2 Tray Egg @ ₱210.00 = ₱210.00', '189', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(424, NULL, '2026-03-17', 'Diaz, Maricris T', 'Sales', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '187', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(425, NULL, '2026-03-17', 'Diaz, Maricris T', 'Sales', NULL, 1340.00, '1 Sack Rice @ ₱1340.00 = ₱1340.00', '187', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(426, 720, '2026-03-17', 'DILIDILI, EMELINA TOLEDO', 'Sales', NULL, 210.00, '1 Tray Egg @ ₱210.00 = ₱210.00', '188', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(427, NULL, '2026-03-16', 'Delos Santos, Joann A', 'Sales', NULL, 720.00, '3 Tray Egg @ ₱240.00 = ₱720.00', '183', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(428, NULL, '2026-03-16', 'Delos Santos, Joann A', 'Sales', NULL, 1125.00, '5 Tray Egg @ ₱225.00 = ₱1125.00', '183', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(429, NULL, '2026-03-16', 'Delos Santos, Joann A', 'Sales', NULL, 630.00, '3 Tray Egg @ ₱210.00 = ₱630.00', '183', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(430, NULL, '2026-03-16', 'Amada, Dexter E', 'Sales', NULL, 1340.00, '1 Sack Rice @ ₱1340.00 = ₱1340.00', '184', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(431, NULL, '2026-03-16', 'Araracap, Julia', 'Sales', NULL, 53.00, '1 Bottle Toyo @ ₱53.00 = ₱53.00', '185', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(432, NULL, '2026-03-16', 'Araracap, Julia', 'Sales', NULL, 130.00, '1 Bottle Oil @ ₱130.00 = ₱130.00', '185', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(433, NULL, '2026-03-16', 'Araracap, Julia', 'Sales', NULL, 160.00, '2 Bottle Fab-Con @ ₱80.00 = ₱160.00', '185', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22'),
+(434, NULL, '2026-03-16', 'Araracap, Julia', 'Sales', NULL, 70.00, '1 Kilo Asukal @ ₱70.00 = ₱70.00', '185', 'PAID', 0.00, 0.00, '2026-06-18 04:02:22');
 
 --
 -- Indexes for dumped tables
 --
+
+--
+-- Indexes for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  ADD PRIMARY KEY (`log_id`),
+  ADD KEY `idx_created_at` (`created_at`),
+  ADD KEY `idx_module` (`module`),
+  ADD KEY `idx_action` (`action`);
 
 --
 -- Indexes for table `beneficiaries`
@@ -699,6 +1248,22 @@ ALTER TABLE `config_product_categories`
   ADD PRIMARY KEY (`id`);
 
 --
+-- Indexes for table `config_share_payment_types`
+--
+ALTER TABLE `config_share_payment_types`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_share_payment_type_name` (`name`),
+  ADD KEY `idx_share_payment_type_active` (`is_active`);
+
+--
+-- Indexes for table `config_transaction_types`
+--
+ALTER TABLE `config_transaction_types`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uq_transaction_type_name` (`name`),
+  ADD KEY `idx_transaction_type_active` (`is_active`);
+
+--
 -- Indexes for table `config_unit_types`
 --
 ALTER TABLE `config_unit_types`
@@ -709,6 +1274,12 @@ ALTER TABLE `config_unit_types`
 --
 ALTER TABLE `inventory`
   ADD PRIMARY KEY (`product_id`);
+
+--
+-- Indexes for table `inventory_daily_snapshot`
+--
+ALTER TABLE `inventory_daily_snapshot`
+  ADD PRIMARY KEY (`snapshot_date`,`product_id`);
 
 --
 -- Indexes for table `inventory_outsourcing`
@@ -727,17 +1298,24 @@ ALTER TABLE `members`
 -- Indexes for table `transactions`
 --
 ALTER TABLE `transactions`
-  ADD PRIMARY KEY (`transaction_id`);
+  ADD PRIMARY KEY (`transaction_id`),
+  ADD KEY `idx_share_payment_type_id` (`share_payment_type_id`);
 
 --
 -- AUTO_INCREMENT for dumped tables
 --
 
 --
+-- AUTO_INCREMENT for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  MODIFY `log_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=54;
+
+--
 -- AUTO_INCREMENT for table `beneficiaries`
 --
 ALTER TABLE `beneficiaries`
-  MODIFY `beneficiary_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1408;
+  MODIFY `beneficiary_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1415;
 
 --
 -- AUTO_INCREMENT for table `config_civil_status`
@@ -770,34 +1348,46 @@ ALTER TABLE `config_product_categories`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
+-- AUTO_INCREMENT for table `config_share_payment_types`
+--
+ALTER TABLE `config_share_payment_types`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=1993;
+
+--
+-- AUTO_INCREMENT for table `config_transaction_types`
+--
+ALTER TABLE `config_transaction_types`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=3456;
+
+--
 -- AUTO_INCREMENT for table `config_unit_types`
 --
 ALTER TABLE `config_unit_types`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=8;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=11;
 
 --
 -- AUTO_INCREMENT for table `inventory`
 --
 ALTER TABLE `inventory`
-  MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=29;
+  MODIFY `product_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
 
 --
 -- AUTO_INCREMENT for table `inventory_outsourcing`
 --
 ALTER TABLE `inventory_outsourcing`
-  MODIFY `record_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=9;
+  MODIFY `record_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
 
 --
 -- AUTO_INCREMENT for table `members`
 --
 ALTER TABLE `members`
-  MODIFY `member_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=724;
+  MODIFY `member_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=727;
 
 --
 -- AUTO_INCREMENT for table `transactions`
 --
 ALTER TABLE `transactions`
-  MODIFY `transaction_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=14;
+  MODIFY `transaction_id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=438;
 
 --
 -- Constraints for dumped tables

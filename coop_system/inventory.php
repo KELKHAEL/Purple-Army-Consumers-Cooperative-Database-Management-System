@@ -33,6 +33,49 @@ function inventoryReportDateLabel($date) {
     return date('F d, Y', strtotime($date));
 }
 
+function inventoryEnsureSnapshot(mysqli $conn, string $snapshotDate): void {
+    $snapshotDate = trim($snapshotDate);
+    if ($snapshotDate === '') {
+        return;
+    }
+
+    $target = $conn->real_escape_string($snapshotDate);
+    $exists = $conn->query("SELECT 1 FROM inventory_daily_snapshot WHERE snapshot_date = '$target' LIMIT 1");
+    if ($exists && $exists->num_rows > 0) {
+        return;
+    }
+
+    $source_date = null;
+    $source_res = $conn->query("SELECT snapshot_date FROM inventory_daily_snapshot WHERE snapshot_date <= '$target' ORDER BY snapshot_date DESC LIMIT 1");
+    if ($source_res && ($source_row = $source_res->fetch_assoc())) {
+        $source_date = trim((string)($source_row['snapshot_date'] ?? ''));
+    }
+
+    if ($source_date !== '') {
+        $source = $conn->real_escape_string($source_date);
+        $conn->query("INSERT INTO inventory_daily_snapshot (snapshot_date, product_id, product_name, product_type, quantity_type, quantity, price)
+                      SELECT '$target', product_id, product_name, product_type, quantity_type, quantity, price
+                      FROM inventory_daily_snapshot
+                      WHERE snapshot_date = '$source'
+                      ON DUPLICATE KEY UPDATE
+                        product_name = VALUES(product_name),
+                        product_type = VALUES(product_type),
+                        quantity_type = VALUES(quantity_type),
+                        quantity = VALUES(quantity),
+                        price = VALUES(price)");
+        return;
+    }
+
+    $conn->query("INSERT INTO inventory_daily_snapshot (snapshot_date, product_id, product_name, product_type, quantity_type, quantity, price)
+                  SELECT '$target', product_id, product_name, product_type, quantity_type, current_quantity, price FROM inventory
+                  ON DUPLICATE KEY UPDATE
+                    product_name = VALUES(product_name),
+                    product_type = VALUES(product_type),
+                    quantity_type = VALUES(quantity_type),
+                    quantity = VALUES(quantity),
+                    price = VALUES(price)");
+}
+
 $report_date = inventoryReportDate($_GET['report_date'] ?? ($_GET['report_to'] ?? ($_GET['report_from'] ?? $today)), $today, $today);
 $report_from = $report_date;
 $report_to = $report_date;
@@ -222,29 +265,16 @@ if ($report_sort === 'qty_asc') {
 }
 
 $inventory_rows = [];
-$snapshot_missing = false;
+$inventory_result = false;
 if ($is_past_date) {
-    $check = $conn->query("SELECT COUNT(*) as c FROM inventory_daily_snapshot WHERE snapshot_date = '" . $conn->real_escape_string($report_date) . "'");
-    $count = ($check && ($r = $check->fetch_assoc())) ? (int)$r['c'] : 0;
-    if ($count <= 0) {
-        $snapshot_missing = true;
-    } else {
-        $inventory_result = $conn->query("SELECT product_id, product_name, product_type, quantity_type, quantity AS current_quantity, price FROM inventory_daily_snapshot WHERE snapshot_date = '" . $conn->real_escape_string($report_date) . "' ORDER BY $order_by_snap");
-    }
+    inventoryEnsureSnapshot($conn, $report_date);
+    $inventory_result = $conn->query("SELECT product_id, product_name, product_type, quantity_type, quantity AS current_quantity, price FROM inventory_daily_snapshot WHERE snapshot_date = '" . $conn->real_escape_string($report_date) . "' ORDER BY $order_by_snap");
 } else {
     // Live inventory
     $inventory_result = $conn->query("SELECT * FROM inventory ORDER BY $order_by_live");
 
     // Save today's snapshot automatically so historical reports remain available later.
-    $snap_date = $conn->real_escape_string($report_date);
-    $conn->query("INSERT INTO inventory_daily_snapshot (snapshot_date, product_id, product_name, product_type, quantity_type, quantity, price)
-                  SELECT '$snap_date', product_id, product_name, product_type, quantity_type, current_quantity, price FROM inventory
-                  ON DUPLICATE KEY UPDATE
-                    product_name = VALUES(product_name),
-                    product_type = VALUES(product_type),
-                    quantity_type = VALUES(quantity_type),
-                    quantity = VALUES(quantity),
-                    price = VALUES(price)");
+    inventoryEnsureSnapshot($conn, $report_date);
 }
 if ($inventory_result && $inventory_result->num_rows > 0) {
     while ($row = $inventory_result->fetch_assoc()) {
@@ -710,15 +740,6 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                         </div>
                     </div>
                 </form>
-
-                <?php if ($is_past_date && $snapshot_missing): ?>
-                    <div class="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-6 print:hidden">
-                        <div class="font-bold"><i class="fas fa-exclamation-triangle mr-2"></i>No Snapshot For <?= inventoryReportDateLabel($report_date) ?></div>
-                        <div class="text-sm text-amber-800 mt-1">
-                            This system can only show historical inventory reports if a snapshot was saved for that date. Open the inventory page on the day itself (or before changes) to automatically save the snapshot.
-                        </div>
-                    </div>
-                <?php endif; ?>
 
                 <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 print:hidden">
                     
