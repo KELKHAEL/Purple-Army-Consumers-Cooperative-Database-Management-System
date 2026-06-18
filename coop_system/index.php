@@ -143,7 +143,7 @@ if ($countResult && $countResult->num_rows > 0) {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -233,9 +233,9 @@ if ($countResult && $countResult->num_rows > 0) {
 
                                         echo "<tr class='member-row hover:bg-purple-50 transition-colors'>
                                                 <td class='px-6 py-3.5 font-semibold text-gray-900'>{$display_id}</td>
-                                                <td class='px-6 py-3.5 capitalize font-medium text-gray-800'>{$full_name}</td>
-                                                <td class='px-6 py-3.5'>" . htmlspecialchars($row['sex'] ?? 'N/A') . "</td>
-                                                <td class='px-6 py-3.5'>" . htmlspecialchars($row['occupation'] ?? 'N/A') . "</td>
+                                                <td class='px-6 py-3.5 uppercase font-medium text-gray-800'>{$full_name}</td>
+                                                <td class='px-6 py-3.5 uppercase'>" . htmlspecialchars($row['sex'] ?? 'N/A') . "</td>
+                                                <td class='px-6 py-3.5 uppercase'>" . htmlspecialchars($row['occupation'] ?? 'N/A') . "</td>
                                                 <td class='px-6 py-3.5 flex justify-center gap-2'>
                                                     <a href='view_member.php?id={$row['member_id']}' class='bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 font-medium py-1 px-3 rounded shadow-sm text-xs transition-colors'><i class='fas fa-eye mr-1 text-primary'></i> VIEW</a>
                                                     <a href='edit_member.php?id={$row['member_id']}' class='bg-white hover:bg-gray-100 text-gray-700 border border-gray-300 font-medium py-1 px-3 rounded shadow-sm text-xs transition-colors inline-block'><i class='fas fa-edit mr-1 text-blue-600'></i> EDIT</a>

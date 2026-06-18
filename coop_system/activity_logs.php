@@ -46,8 +46,424 @@ function statusBadgeClass($status)
         'SUCCESS' => 'bg-green-100 text-green-700 border-green-200',
         'INFO' => 'bg-blue-100 text-blue-700 border-blue-200',
         'ERROR' => 'bg-red-100 text-red-700 border-red-200',
+        'REVERTED' => 'bg-purple-100 text-purple-700 border-purple-200',
         default => 'bg-gray-100 text-gray-700 border-gray-200',
     };
+}
+
+function parseActivityLogPayload(string $details): ?array
+{
+    $details = trim($details);
+    if ($details === '') {
+        return null;
+    }
+
+    if (strpos($details, 'JSON:') === 0) {
+        $decoded = json_decode(substr($details, 5), true);
+        return is_array($decoded) ? $decoded : null;
+    }
+
+    return null;
+}
+
+function activityLogExtractNumber(string $details, string $pattern): ?float
+{
+    if (!preg_match($pattern, $details, $matches)) {
+        return null;
+    }
+    $number = preg_replace('/[^0-9.\-]/', '', (string)($matches[1] ?? ''));
+    return $number === '' ? null : (float)$number;
+}
+
+function revertActivityLogEntry(mysqli $conn, array $log_row): array
+{
+    $module = strtoupper(trim((string)($log_row['module'] ?? '')));
+    $action = strtoupper(trim((string)($log_row['action'] ?? '')));
+    $entity_type = strtoupper(trim((string)($log_row['entity_type'] ?? '')));
+    $entity_id = trim((string)($log_row['entity_id'] ?? ''));
+    $entity_name = trim((string)($log_row['entity_name'] ?? ''));
+    $details = (string)($log_row['details'] ?? '');
+    $payload = parseActivityLogPayload($details);
+
+    $conn->begin_transaction();
+
+    try {
+        $handled = false;
+
+        if ($module === 'SETTINGS' && $entity_type === 'CONFIG') {
+            $table = (string)($payload['table'] ?? '');
+            $before = is_array($payload['before'] ?? null) ? $payload['before'] : [];
+            $after = is_array($payload['after'] ?? null) ? $payload['after'] : [];
+            $row_id = (int)$entity_id;
+            $table_map = [
+                'ADD OCCUPATION' => 'config_occupations',
+                'DELETE OCCUPATION' => 'config_occupations',
+                'EDIT OCCUPATION' => 'config_occupations',
+                'ADD INCOME' => 'config_monthly_income',
+                'DELETE INCOME' => 'config_monthly_income',
+                'EDIT INCOME' => 'config_monthly_income',
+                'ADD CIVIL STATUS' => 'config_civil_status',
+                'DELETE CIVIL STATUS' => 'config_civil_status',
+                'EDIT CIVIL STATUS' => 'config_civil_status',
+                'ADD CATEGORY' => 'config_product_categories',
+                'DELETE CATEGORY' => 'config_product_categories',
+                'EDIT CATEGORY' => 'config_product_categories',
+                'ADD UNIT' => 'config_unit_types',
+                'DELETE UNIT' => 'config_unit_types',
+                'EDIT UNIT' => 'config_unit_types',
+                'ADD SHARE TYPE' => 'config_share_payment_types',
+                'DELETE SHARE TYPE' => 'config_share_payment_types',
+                'EDIT SHARE TYPE' => 'config_share_payment_types',
+                'ADD TRANSACTION TYPE' => 'config_transaction_types',
+                'DELETE TRANSACTION TYPE' => 'config_transaction_types',
+                'EDIT TRANSACTION TYPE' => 'config_transaction_types',
+            ];
+            if ($table === '' && isset($table_map[$action])) {
+                $table = $table_map[$action];
+            }
+
+            if ($action === 'UPDATE RECEIPT SIGNATORIES') {
+                $treasurer = (string)($before['receipt_treasurer_name'] ?? '');
+                $manager = (string)($before['receipt_manager_name'] ?? '');
+                $pairs = [
+                    'receipt_treasurer_name' => $treasurer,
+                    'receipt_manager_name' => $manager,
+                ];
+                foreach ($pairs as $setting_key => $setting_value) {
+                    $stmt = $conn->prepare("UPDATE config_inventory_settings SET setting_value = ? WHERE setting_key = ?");
+                    $stmt->bind_param('ss', $setting_value, $setting_key);
+                    $stmt->execute();
+                    if ($stmt->affected_rows === 0) {
+                        $insert = $conn->prepare("INSERT INTO config_inventory_settings (setting_key, setting_value) VALUES (?, ?)");
+                        $insert->bind_param('ss', $setting_key, $setting_value);
+                        $insert->execute();
+                        $insert->close();
+                    }
+                    $stmt->close();
+                }
+                $handled = true;
+            } elseif ($action === 'UPDATE INVENTORY SETTINGS') {
+                $allow = (string)($before['allow_negative_stock'] ?? '0');
+                $stmt = $conn->prepare("UPDATE config_inventory_settings SET setting_value = ? WHERE setting_key = 'allow_negative_stock'");
+                $stmt->bind_param('s', $allow);
+                $stmt->execute();
+                $stmt->close();
+                $handled = true;
+            } elseif (strpos($action, 'ADD ') === 0) {
+                if ($table !== '' && $row_id > 0) {
+                    if (in_array($table, ['config_share_payment_types', 'config_transaction_types'], true)) {
+                        $stmt = $conn->prepare("UPDATE {$table} SET is_active = 0 WHERE id = ?");
+                        $stmt->bind_param('i', $row_id);
+                        $stmt->execute();
+                        $stmt->close();
+                    } else {
+                        $stmt = $conn->prepare("DELETE FROM {$table} WHERE id = ?");
+                        $stmt->bind_param('i', $row_id);
+                        $stmt->execute();
+                        $stmt->close();
+                    }
+                    $handled = true;
+                }
+            } elseif (strpos($action, 'DELETE ') === 0) {
+                if ($table !== '' && $row_id > 0) {
+                    $restore_name = (string)($before['name'] ?? $entity_name);
+                    if (in_array($table, ['config_share_payment_types', 'config_transaction_types'], true)) {
+                        $stmt = $conn->prepare("UPDATE {$table} SET is_active = 1, name = ? WHERE id = ?");
+                        $stmt->bind_param('si', $restore_name, $row_id);
+                        $stmt->execute();
+                        $stmt->close();
+                    } else {
+                        $stmt = $conn->prepare("SELECT COUNT(*) AS c FROM {$table} WHERE id = ?");
+                        $stmt->bind_param('i', $row_id);
+                        $stmt->execute();
+                        $res = $stmt->get_result();
+                        $exists = $res ? (int)($res->fetch_assoc()['c'] ?? 0) : 0;
+                        $stmt->close();
+                        if ($exists <= 0) {
+                            $stmt = $conn->prepare("INSERT INTO {$table} (id, name) VALUES (?, ?)");
+                            $stmt->bind_param('is', $row_id, $restore_name);
+                            $stmt->execute();
+                            $stmt->close();
+                        }
+                    }
+                    $handled = true;
+                }
+            } elseif (strpos($action, 'EDIT ') === 0) {
+                if ($table !== '' && $row_id > 0 && isset($before['name'])) {
+                    $old_name = (string)$before['name'];
+                    $stmt = $conn->prepare("UPDATE {$table} SET name = ? WHERE id = ?");
+                    $stmt->bind_param('si', $old_name, $row_id);
+                    $stmt->execute();
+                    $stmt->close();
+                    $handled = true;
+                }
+            }
+        }
+
+        if (!$handled && $module === 'SALES' && $entity_type === 'TRANSACTION') {
+            $transaction_id = (int)$entity_id;
+            if ($transaction_id > 0) {
+                $stmt = $conn->prepare("SELECT * FROM transactions WHERE transaction_id = ? LIMIT 1");
+                $stmt->bind_param('i', $transaction_id);
+                $stmt->execute();
+                $res = $stmt->get_result();
+                $txn = $res ? $res->fetch_assoc() : null;
+                $stmt->close();
+
+                if ($txn) {
+                    if (in_array($action, ['SALE CHECKOUT', 'OUTSOURCE CHECKOUT'], true)) {
+                        $payment_method = 'Cash';
+                        if (preg_match('/Payment Method:\s*([^,]+)/i', $details, $m)) {
+                            $payment_method = trim((string)$m[1]);
+                        }
+                        $receipt_no = (string)($txn['invoice_no'] ?? '');
+                        $buyer_name = (string)($txn['member_name'] ?? '');
+
+                        $stmt = $conn->prepare("SELECT record_id, product_id, quantity_out FROM inventory_outsourcing WHERE receipt_no = ? AND buyer_name = ? AND payment_method = ?");
+                        $stmt->bind_param('sss', $receipt_no, $buyer_name, $payment_method);
+                        $stmt->execute();
+                        $res = $stmt->get_result();
+                        $outs = [];
+                        while ($res && ($row = $res->fetch_assoc())) {
+                            $outs[] = $row;
+                        }
+                        $stmt->close();
+
+                        foreach ($outs as $out) {
+                            $product_id = (int)($out['product_id'] ?? 0);
+                            $quantity_out = (int)($out['quantity_out'] ?? 0);
+                            if ($product_id > 0 && $quantity_out > 0) {
+                                $stmt = $conn->prepare("UPDATE inventory SET current_quantity = current_quantity + ? WHERE product_id = ?");
+                                $stmt->bind_param('ii', $quantity_out, $product_id);
+                                $stmt->execute();
+                                $stmt->close();
+                            }
+
+                            $record_id = (int)($out['record_id'] ?? 0);
+                            if ($record_id > 0) {
+                                $stmt = $conn->prepare("DELETE FROM inventory_outsourcing WHERE record_id = ?");
+                                $stmt->bind_param('i', $record_id);
+                                $stmt->execute();
+                                $stmt->close();
+                            }
+                        }
+
+                        $stmt = $conn->prepare("DELETE FROM transactions WHERE transaction_id = ?");
+                        $stmt->bind_param('i', $transaction_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        $handled = true;
+                    } elseif (in_array($action, ['ADD MANUAL TRANSACTION', 'ADD MEMBER SHARE'], true)) {
+                        $stmt = $conn->prepare("DELETE FROM transactions WHERE transaction_id = ?");
+                        $stmt->bind_param('i', $transaction_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        $handled = true;
+                    } elseif ($action === 'FINALIZE OUTSOURCE PAYMENT') {
+                        $amount = (float)($txn['amount'] ?? 0);
+                        $stmt = $conn->prepare("UPDATE transactions SET invoice_no = 'OUTSOURCED', payment_status = 'PENDING', downpayment = 0, remaining_balance = ? WHERE transaction_id = ?");
+                        $stmt->bind_param('di', $amount, $transaction_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        $handled = true;
+                    } elseif ($action === 'RECORD PAY LATER DOWNPAYMENT') {
+                        $apply = activityLogExtractNumber($details, '/Payment received:\s*([0-9.,-]+)/i') ?? 0.0;
+                        $stmt = $conn->prepare("UPDATE transactions SET downpayment = GREATEST(downpayment - ?, 0), remaining_balance = remaining_balance + ?, payment_status = CASE WHEN (downpayment - ?) <= 0 THEN 'PENDING' ELSE 'DOWNPAYMENT' END WHERE transaction_id = ?");
+                        $stmt->bind_param('dddi', $apply, $apply, $apply, $transaction_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        $handled = true;
+                    } elseif ($action === 'COMPLETE PAY LATER PAYMENT') {
+                        $apply = activityLogExtractNumber($details, '/Payment received:\s*([0-9.,-]+)/i') ?? 0.0;
+                        $new_remaining = $apply;
+                        $current_downpayment = (float)($txn['downpayment'] ?? 0);
+                        $new_downpayment = max($current_downpayment - $apply, 0);
+                        $new_status = $new_downpayment > 0 ? 'DOWNPAYMENT' : 'PENDING';
+                        $stmt = $conn->prepare("UPDATE transactions SET invoice_no = '', downpayment = ?, remaining_balance = ?, payment_status = ? WHERE transaction_id = ?");
+                        $stmt->bind_param('ddsi', $new_downpayment, $new_remaining, $new_status, $transaction_id);
+                        $stmt->execute();
+                        $stmt->close();
+                        $handled = true;
+                    }
+                }
+            }
+        }
+
+        if (!$handled && $module === 'INVENTORY' && $entity_type === 'PRODUCT') {
+            $operation = strtoupper((string)($payload['operation'] ?? ''));
+            $before = is_array($payload['before'] ?? null) ? $payload['before'] : [];
+            $after = is_array($payload['after'] ?? null) ? $payload['after'] : [];
+            $product_id = (int)$entity_id;
+
+            if ($operation === 'ADD') {
+                $stmt = $conn->prepare("DELETE FROM inventory WHERE product_id = ?");
+                $stmt->bind_param('i', $product_id);
+                $stmt->execute();
+                $stmt->close();
+                $handled = true;
+            } elseif ($operation === 'DELETE') {
+                if (!empty($before)) {
+                    $existing = $conn->query("SELECT COUNT(*) AS c FROM inventory WHERE product_id = {$product_id}");
+                    $exists = $existing ? (int)($existing->fetch_assoc()['c'] ?? 0) : 0;
+                    if ($exists <= 0) {
+                        $stmt = $conn->prepare("INSERT INTO inventory (product_id, product_name, product_type, quantity_type, current_quantity, price) VALUES (?, ?, ?, ?, ?, ?)");
+                        $qty = (int)($before['current_quantity'] ?? 0);
+                        $price = (float)($before['price'] ?? 0);
+                        $stmt->bind_param('isssid', $product_id, $before['product_name'], $before['product_type'], $before['quantity_type'], $qty, $price);
+                        $stmt->execute();
+                        $stmt->close();
+                    }
+                    $handled = true;
+                }
+            } elseif ($operation === 'UPDATE') {
+                if (!empty($before)) {
+                    $stmt = $conn->prepare("UPDATE inventory SET product_name = ?, product_type = ?, quantity_type = ?, current_quantity = ?, price = ? WHERE product_id = ?");
+                    $qty = (int)($before['current_quantity'] ?? 0);
+                    $price = (float)($before['price'] ?? 0);
+                    $stmt->bind_param('sssddi', $before['product_name'], $before['product_type'], $before['quantity_type'], $qty, $price, $product_id);
+                    $stmt->execute();
+                    $stmt->close();
+                    $handled = true;
+                }
+            } elseif ($operation === 'ADJUST') {
+                if (array_key_exists('before', $payload) && is_array($before) && isset($before['current_quantity'])) {
+                    $qty = (int)$before['current_quantity'];
+                    $stmt = $conn->prepare("UPDATE inventory SET current_quantity = ? WHERE product_id = ?");
+                    $stmt->bind_param('ii', $qty, $product_id);
+                    $stmt->execute();
+                    $stmt->close();
+                    $handled = true;
+                }
+            }
+        }
+
+        if (!$handled && $module === 'INVENTORY' && $action === 'RECONCILE OUTSOURCE' && $entity_type === 'OUTSOURCING RECORD') {
+            $record_id = (int)$entity_id;
+            $qty_returned = (int)(activityLogExtractNumber($details, '/Returned:\s*([0-9.,-]+)/i') ?? 0);
+            $prod_id = (int)(activityLogExtractNumber($details, '/Product ID\s*([0-9.,-]+)/i') ?? 0);
+            if ($prod_id > 0 && $qty_returned > 0) {
+                $stmt = $conn->prepare("UPDATE inventory SET current_quantity = current_quantity - ? WHERE product_id = ?");
+                $stmt->bind_param('ii', $qty_returned, $prod_id);
+                $stmt->execute();
+                $stmt->close();
+            }
+            if ($record_id > 0) {
+                $stmt = $conn->prepare("UPDATE inventory_outsourcing SET quantity_returned = 0, status = 'PENDING' WHERE record_id = ?");
+                $stmt->bind_param('i', $record_id);
+                $stmt->execute();
+                $stmt->close();
+            }
+            $handled = true;
+        }
+
+        if (!$handled) {
+            throw new Exception('This log entry cannot be reverted automatically.');
+        }
+
+        $conn->commit();
+        return [
+            'status' => 'success',
+            'title' => 'Revert Completed',
+            'message' => 'The selected action was reverted successfully and a new revert audit entry can be recorded.',
+        ];
+    } catch (Throwable $e) {
+        $conn->rollback();
+        return [
+            'status' => 'error',
+            'title' => 'Revert Failed',
+            'message' => $e->getMessage(),
+        ];
+    }
+}
+
+$flash_message = '';
+$flash_type = 'success';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['revert_log_id'])) {
+    $revert_log_id = (int)($_POST['revert_log_id'] ?? 0);
+    $redirect_query = [];
+    $redirect_date = trim((string)($_POST['redirect_date'] ?? ''));
+    $redirect_module = trim((string)($_POST['redirect_module'] ?? 'ALL'));
+    $redirect_q = trim((string)($_POST['redirect_q'] ?? ''));
+    if ($redirect_date !== '') {
+        $redirect_query['date'] = $redirect_date;
+    }
+    if ($redirect_module !== '') {
+        $redirect_query['module'] = $redirect_module;
+    }
+    if ($redirect_q !== '') {
+        $redirect_query['q'] = $redirect_q;
+    }
+
+    if ($revert_log_id > 0) {
+        $stmt = $conn->prepare("SELECT * FROM activity_logs WHERE log_id = ? LIMIT 1");
+        if ($stmt) {
+            $stmt->bind_param('i', $revert_log_id);
+            $stmt->execute();
+            $res = $stmt->get_result();
+            $log_row = $res ? $res->fetch_assoc() : null;
+            $stmt->close();
+
+            if ($log_row) {
+                if (strtoupper((string)($log_row['status'] ?? '')) === 'REVERTED') {
+                    $flash_message = 'This log entry is already marked as reverted.';
+                    $flash_type = 'info';
+                } else {
+                    $revert_result = revertActivityLogEntry($conn, $log_row);
+                    if (($revert_result['status'] ?? '') === 'success') {
+                        $updated_details = trim((string)($log_row['details'] ?? ''));
+                        if ($updated_details !== '') {
+                            $updated_details .= "\n";
+                        }
+                        $updated_details .= 'Reverted on ' . date('F d, Y h:i A') . ' from activity log #' . $revert_log_id . '.';
+
+                        $upd = $conn->prepare("UPDATE activity_logs SET status = 'REVERTED', details = ? WHERE log_id = ?");
+                        if ($upd) {
+                            $upd->bind_param('si', $updated_details, $revert_log_id);
+                            $upd->execute();
+                            $upd->close();
+                        }
+
+                        logActivity(
+                            $conn,
+                            (string)($log_row['module'] ?? 'SYSTEM'),
+                            'REVERT ACTION',
+                            (string)($log_row['entity_type'] ?? 'LOG'),
+                            $log_row['entity_id'] ?? null,
+                            (string)($log_row['entity_name'] ?? ''),
+                            'Reverted activity log #' . $revert_log_id . ' (' . (string)($log_row['action'] ?? 'ACTION') . ').',
+                            'SUCCESS'
+                        );
+
+                        $flash_message = (string)($revert_result['message'] ?? 'The selected log entry was reverted successfully.');
+                        $flash_type = 'success';
+                    } else {
+                        $flash_message = (string)($revert_result['message'] ?? 'Unable to revert the selected log entry.');
+                        $flash_type = 'error';
+                    }
+                }
+            } else {
+                $flash_message = 'Unable to find the selected activity log.';
+                $flash_type = 'error';
+            }
+        } else {
+            $flash_message = 'Unable to prepare the revert request.';
+            $flash_type = 'error';
+        }
+    } else {
+        $flash_message = 'Invalid activity log selected for revert.';
+        $flash_type = 'error';
+    }
+
+    $redirect_url = 'activity_logs.php';
+    if (!empty($redirect_query)) {
+        $redirect_url .= '?' . http_build_query($redirect_query);
+    }
+    $_SESSION['alert_title'] = $flash_type === 'success' ? 'Revert Completed' : ($flash_type === 'info' ? 'Revert Notice' : 'Revert Failed');
+    $_SESSION['alert_message'] = $flash_message;
+    $_SESSION['alert_type'] = $flash_type;
+    header('Location: ' . $redirect_url);
+    exit();
 }
 
 $today = date('Y-m-d');
@@ -101,6 +517,7 @@ $summary_counts = [
     'SUCCESS' => 0,
     'INFO' => 0,
     'ERROR' => 0,
+    'REVERTED' => 0,
 ];
 $module_counts = [
     'INVENTORY' => 0,
@@ -137,6 +554,11 @@ foreach ($logs as $log) {
 
 $group_keys = array_keys($grouped_logs);
 rsort($group_keys);
+
+$page_alert_title = $_SESSION['alert_title'] ?? '';
+$page_alert_message = $_SESSION['alert_message'] ?? '';
+$page_alert_type = strtolower((string)($_SESSION['alert_type'] ?? ''));
+unset($_SESSION['alert_title'], $_SESSION['alert_message'], $_SESSION['alert_type']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -178,7 +600,7 @@ rsort($group_keys);
             <nav class="flex-1 overflow-y-auto py-4 flex flex-col gap-1">
                 <a href="index.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-users w-6"></i> MEMBERSHIP DIRECTORY</a>
                 <a href="member_shares.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES</a>
-                <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-receipt w-6"></i> TRANSACTIONS</a>
+                <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS</a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-boxes w-6"></i> INVENTORY</a>
                 <a href="pos.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-shopping-cart w-6"></i> SELL / OUTSOURCE</a>
                 <a href="outsourcing_report.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors"><i class="fas fa-chart-line w-6"></i> OUTSOURCING LOGS</a>
@@ -200,6 +622,13 @@ rsort($group_keys);
             </header>
 
             <div class="flex-1 overflow-y-auto p-4 md:p-8">
+                <?php if ($page_alert_message !== ''): ?>
+                    <div class="mb-6 rounded-xl border px-4 py-3 shadow-sm <?= $page_alert_type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : ($page_alert_type === 'info' ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-green-200 bg-green-50 text-green-800') ?>">
+                        <div class="font-bold uppercase text-xs tracking-wide mb-1"><?= htmlspecialchars($page_alert_title !== '' ? $page_alert_title : 'Notice') ?></div>
+                        <div class="text-sm leading-relaxed"><?= htmlspecialchars($page_alert_message) ?></div>
+                    </div>
+                <?php endif; ?>
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
                     <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                         <div class="text-xs font-bold uppercase text-gray-500">Logs Shown</div>
@@ -319,6 +748,21 @@ rsort($group_keys);
                                                             <div class="font-bold uppercase text-gray-400">Actor</div>
                                                             <div class="font-semibold text-gray-700"><?= htmlspecialchars($log['actor_name'] ?? 'SYSTEM') ?></div>
                                                             <div class="text-[11px] uppercase tracking-wide"><?= htmlspecialchars($log['actor_role'] ?? 'SYSTEM') ?></div>
+                                                            <?php if (strtoupper((string)($log['status'] ?? '')) !== 'REVERTED'): ?>
+                                                                <form method="POST" action="activity_logs.php" class="mt-3">
+                                                                    <input type="hidden" name="revert_log_id" value="<?= (int)($log['log_id'] ?? 0) ?>">
+                                                                    <input type="hidden" name="redirect_date" value="<?= htmlspecialchars($selected_date) ?>">
+                                                                    <input type="hidden" name="redirect_module" value="<?= htmlspecialchars($module_filter) ?>">
+                                                                    <input type="hidden" name="redirect_q" value="<?= htmlspecialchars($search) ?>">
+                                                                    <button type="submit" onclick="return confirm('Revert this activity log entry? This will mark the log as reverted and create a new revert audit entry.');" class="inline-flex items-center gap-2 rounded-md border border-purple-200 bg-purple-100 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-purple-800 transition-colors hover:bg-purple-600 hover:text-white">
+                                                                        <i class="fas fa-rotate-left"></i> Revert
+                                                                    </button>
+                                                                </form>
+                                                            <?php else: ?>
+                                                                <div class="mt-3 inline-flex items-center gap-2 rounded-md border border-purple-200 bg-purple-50 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-purple-700">
+                                                                    <i class="fas fa-rotate-left"></i> Reverted
+                                                                </div>
+                                                            <?php endif; ?>
                                                         </div>
                                                     </div>
                                                 </div>

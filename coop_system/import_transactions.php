@@ -37,6 +37,62 @@ function normalizeTxnImportIdentifier($input): string {
     return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
 }
 
+function normalizeTxnImportComparableText($input): string {
+    $value = html_entity_decode((string)$input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+    $value = preg_replace('/\s+/u', ' ', trim($value));
+    if ($value === '') {
+        return '';
+    }
+    return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+}
+
+function normalizeTxnImportMoney($input): string {
+    $value = preg_replace('/[^0-9\.\-]/', '', (string)$input);
+    if ($value === '' || !is_numeric($value)) {
+        return number_format(0, 2, '.', '');
+    }
+    return number_format((float)$value, 2, '.', '');
+}
+
+function isExcludedSalesPurchaseImportType(string $type): bool {
+    $normalized = function_exists('mb_strtoupper') ? mb_strtoupper(trim($type), 'UTF-8') : strtoupper(trim($type));
+    return in_array($normalized, [
+        'MEMBERSHIP FEE',
+        'SHARE CAPITAL',
+        'MEMBERSHIP SHARE CAPITAL',
+        'SHARES CAPITAL',
+        'SHARE',
+    ], true);
+}
+
+function normalizeTxnImportItemsDetails($input): string {
+    $lines = preg_split("/\r\n|\n|\r/", (string)$input) ?: [];
+    $normalized = [];
+    foreach ($lines as $line) {
+        $line = normalizeTxnImportComparableText($line);
+        if ($line !== '') {
+            $normalized[] = $line;
+        }
+    }
+    return implode("\n", $normalized);
+}
+
+function buildTxnImportFingerprint(array $data): string {
+    return sha1(json_encode([
+        'transaction_date' => normalizeTxnImportIdentifier($data['transaction_date'] ?? ''),
+        'member_id' => (int)($data['member_id'] ?? 0),
+        'member_name' => normalizeTxnImportComparableText($data['member_name'] ?? ''),
+        'transaction_type' => normalizeTxnImportComparableText($data['transaction_type'] ?? ''),
+        'invoice_no' => normalizeTxnImportIdentifier($data['invoice_no'] ?? ''),
+        'items_details' => normalizeTxnImportItemsDetails($data['items_details'] ?? ''),
+        'payment_status' => normalizeTxnImportComparableText($data['payment_status'] ?? ''),
+        'downpayment' => normalizeTxnImportMoney($data['downpayment'] ?? 0),
+        'remaining_balance' => normalizeTxnImportMoney($data['remaining_balance'] ?? 0),
+        'amount' => normalizeTxnImportMoney($data['amount'] ?? 0),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     
     $fileTmpPath = $_FILES['excel_file']['tmp_name'];
@@ -226,6 +282,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     // 4. MULTI-ROW GROUPING ENGINE
     $transactions_to_save = [];
     $current_idx = -1;
+    $unreadable_count = 0;
 
     for ($i = $start_row; $i < count($rows); $i++) {
         $row = $rows[$i];
@@ -263,6 +320,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 'reference_no' => $cell_reference,
                 'item_unit'    => $cell_unit,
                 'status'       => strtoupper(getVal($row, $excel_map, 'status')),
+                'has_item'     => false,
                 'items'        => [] 
             ];
         }
@@ -278,6 +336,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             $item_line = buildItemLineWithUnit($qty, $unit, $desc, $price, $amt);
             if ($item_line !== null) {
                 $transactions_to_save[$current_idx]['items'][] = $item_line;
+                $transactions_to_save[$current_idx]['has_item'] = true;
             }
         }
     }
@@ -363,31 +422,55 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             }
         }
 
-        if ($txn_name_display === '') {
+        if (isExcludedSalesPurchaseImportType($t_type)) {
+            $unreadable_count++;
             continue;
         }
 
-        // Avoid Duplicates
-        $reference_value = $txn['reference_no'] !== '' ? $txn['reference_no'] : $txn['invoice'];
-        if ($member_id !== null) {
-            $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND member_id = ? AND invoice_no = ?");
-            $check->bind_param("sis", $txn['date'], $member_id, $reference_value);
-        } else {
-            $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE transaction_date = ? AND invoice_no = ?");
-            $check->bind_param("ss", $txn['date'], $reference_value);
+        $reference_value = trim((string)($txn['reference_no'] !== '' ? $txn['reference_no'] : $txn['invoice']));
+        if ($txn_name_display === '' || $reference_value === '' || !$txn['has_item']) {
+            $unreadable_count++;
+            continue;
         }
+
+        $incoming_row = [
+            'transaction_date' => $txn['date'],
+            'member_id' => $member_id ?? 0,
+            'member_name' => $txn_name_display,
+            'transaction_type' => $t_type,
+            'invoice_no' => $reference_value,
+            'items_details' => $items_str,
+            'payment_status' => $txn['status'] !== '' ? $txn['status'] : 'COMPLETED',
+            'downpayment' => $txn['downpayment'],
+            'remaining_balance' => $txn['balance'],
+            'amount' => $txn['total_amount'],
+        ];
+        $incoming_fingerprint = buildTxnImportFingerprint($incoming_row);
+
+        $check = $conn->prepare("SELECT transaction_id, transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance FROM transactions WHERE invoice_no = ?");
+        $check->bind_param("s", $reference_value);
         $check->execute();
         $c_res = $check->get_result();
 
-        if ($c_res->num_rows > 0) {
-            $tid = $c_res->fetch_assoc()['transaction_id'];
-            $upd = $conn->prepare("UPDATE transactions SET member_id=?, items_details=?, payment_status=?, downpayment=?, remaining_balance=?, amount=? WHERE transaction_id=?");
-            $upd->bind_param("issdddi", $member_id, $items_str, $txn['status'], $txn['downpayment'], $txn['balance'], $txn['total_amount'], $tid);
+        $matched_tid = null;
+        if ($c_res && $c_res->num_rows > 0) {
+            while ($existing_row = $c_res->fetch_assoc()) {
+                $existing_fingerprint = buildTxnImportFingerprint($existing_row);
+                if ($existing_fingerprint === $incoming_fingerprint) {
+                    $matched_tid = (int)$existing_row['transaction_id'];
+                    break;
+                }
+            }
+        }
+
+        if ($matched_tid !== null) {
+            $upd = $conn->prepare("UPDATE transactions SET transaction_date=?, member_id=?, member_name=?, transaction_type=?, amount=?, items_details=?, invoice_no=?, payment_status=?, downpayment=?, remaining_balance=? WHERE transaction_id=?");
+            $upd->bind_param("sissdsssddi", $txn['date'], $member_id, $txn_name_display, $t_type, $txn['total_amount'], $items_str, $reference_value, $incoming_row['payment_status'], $txn['downpayment'], $txn['balance'], $matched_tid);
             $upd->execute();
             $updated_count++;
         } else {
             $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-            $ins->bind_param("sissssssdd", $txn['date'], $member_id, $txn_name_display, $t_type, $txn['total_amount'], $items_str, $reference_value, $txn['status'], $txn['downpayment'], $txn['balance']);
+            $ins->bind_param("sissdsssdd", $txn['date'], $member_id, $txn_name_display, $t_type, $txn['total_amount'], $items_str, $reference_value, $incoming_row['payment_status'], $txn['downpayment'], $txn['balance']);
             $ins->execute();
             $inserted_count++;
         }
@@ -401,13 +484,13 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             'TRANSACTIONS',
             null,
             'Bulk Transaction Import',
-            'Inserted ' . $inserted_count . ' transaction row(s) and updated ' . $updated_count . ' existing row(s) from Excel.'
+            'Inserted ' . $inserted_count . ' transaction row(s), overwritten ' . $updated_count . ' row(s), and skipped ' . $unreadable_count . ' unreadable row(s) from Excel.'
         );
     }
 
     $_SESSION['alert_title'] = "Transactions Uploaded";
-    $_SESSION['alert_message'] = "The Excel file was parsed and items are matched to members in the database!";
-    $_SESSION['alert_type'] = "success";
+    $_SESSION['alert_message'] = "Added: <strong>{$inserted_count}</strong><br>Overwritten: <strong>{$updated_count}</strong><br>Unreadable: <strong>{$unreadable_count}</strong>";
+    $_SESSION['alert_type'] = ($inserted_count === 0 && $updated_count === 0) ? "error" : (($unreadable_count > 0) ? "info" : "success");
     
     header("Location: transactions.php"); // Redirecting back to transactions.php to avoid showing the alert on index.php
     exit();

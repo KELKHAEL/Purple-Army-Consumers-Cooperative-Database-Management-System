@@ -2,6 +2,10 @@
 session_start();
 include 'db.php'; 
 
+function dmAuditDetails(array $payload): string {
+    return 'JSON:' . json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+}
+
 // --- HANDLE FORM SUBMISSIONS (ADD / DELETE / UPDATE) ---
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if (isset($_POST['action'])) {
@@ -113,65 +117,104 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Handle Edits (Updates)
             elseif ($action === 'edit_occ' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_occupations WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_occupations SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Occupation updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT OCCUPATION', 'CONFIG', $id, $new_name, 'Updated occupation setting.');
+                    logActivity($conn, 'SETTINGS', 'EDIT OCCUPATION', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_occupations', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'edit_inc' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_monthly_income WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_monthly_income SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Income bracket updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT INCOME', 'CONFIG', $id, $new_name, 'Updated monthly income setting.');
+                    logActivity($conn, 'SETTINGS', 'EDIT INCOME', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_monthly_income', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'edit_civ' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_civil_status WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_civil_status SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Civil status updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT CIVIL STATUS', 'CONFIG', $id, $new_name, 'Updated civil status setting.');
+                    logActivity($conn, 'SETTINGS', 'EDIT CIVIL STATUS', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_civil_status', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'edit_cat' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_product_categories WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_product_categories SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Product category updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT CATEGORY', 'CONFIG', $id, $new_name, 'Updated product category setting.');
+                    logActivity($conn, 'SETTINGS', 'EDIT CATEGORY', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_product_categories', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'edit_unit' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_unit_types WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_unit_types SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Unit type updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT UNIT', 'CONFIG', $id, $new_name, 'Updated unit type setting.');
+                    logActivity($conn, 'SETTINGS', 'EDIT UNIT', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_unit_types', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             }
             
             // Handle Inventory Settings Toggle
             elseif ($action === 'update_inv_settings') {
+                $before_allow = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'allow_negative_stock'")->fetch_assoc();
                 $allow_neg = isset($_POST['allow_negative']) ? '1' : '0';
                 $stmt = $conn->prepare("UPDATE config_inventory_settings SET setting_value = ? WHERE setting_key = 'allow_negative_stock'");
                 $stmt->bind_param("s", $allow_neg);
                 $stmt->execute();
                 $msg = "Inventory permissions updated successfully.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', 'Allow negative stock set to ' . $allow_neg . '.');
+                    logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', dmAuditDetails(['table' => 'config_inventory_settings', 'before' => ['allow_negative_stock' => (string)($before_allow['setting_value'] ?? '0')], 'after' => ['allow_negative_stock' => $allow_neg]]));
+                }
+            } elseif ($action === 'update_receipt_signatories') {
+                $before_rows = [];
+                $receipt_setting_res = $conn->query("SELECT setting_key, setting_value FROM config_inventory_settings WHERE setting_key IN ('receipt_treasurer_name', 'receipt_manager_name')");
+                if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
+                    while ($row = $receipt_setting_res->fetch_assoc()) {
+                        $before_rows[$row['setting_key']] = (string)($row['setting_value'] ?? '');
+                    }
+                }
+                $receipt_treasurer_name = trim((string)($_POST['receipt_treasurer_name'] ?? ''));
+                $receipt_manager_name = trim((string)($_POST['receipt_manager_name'] ?? ''));
+
+                $receipt_settings = [
+                    'receipt_treasurer_name' => $receipt_treasurer_name,
+                    'receipt_manager_name' => $receipt_manager_name,
+                ];
+
+                foreach ($receipt_settings as $setting_key => $setting_value) {
+                    $stmt = $conn->prepare("UPDATE config_inventory_settings SET setting_value = ? WHERE setting_key = ?");
+                    $stmt->bind_param("ss", $setting_value, $setting_key);
+                    $stmt->execute();
+                    if ($stmt->affected_rows === 0) {
+                        $insert = $conn->prepare("INSERT INTO config_inventory_settings (setting_key, setting_value) VALUES (?, ?)");
+                        $insert->bind_param("ss", $setting_key, $setting_value);
+                        $insert->execute();
+                        $insert->close();
+                    }
+                    $stmt->close();
+                }
+
+                $msg = "Receipt signatories updated successfully.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'UPDATE RECEIPT SIGNATORIES', 'CONFIG', null, 'Receipt Signatories', dmAuditDetails(['table' => 'config_inventory_settings', 'before' => $before_rows, 'after' => $receipt_settings]));
                 }
             } elseif ($action === 'add_share_type' && !empty($_POST['new_share_type'])) {
                 $new_name = trim($_POST['new_share_type']);
@@ -184,13 +227,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             } elseif ($action === 'edit_share_type' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_share_payment_types WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_share_payment_types SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Share payment type updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT SHARE TYPE', 'CONFIG', $id, $new_name, 'Updated a share payment type label.');
+                    logActivity($conn, 'SETTINGS', 'EDIT SHARE TYPE', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_share_payment_types', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'del_share_type' && isset($_POST['id'])) {
                 $id = (int)$_POST['id'];
@@ -213,13 +257,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 }
             } elseif ($action === 'edit_trans_type' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_transaction_types WHERE id = $id")->fetch_assoc();
                 $new_name = trim($_POST['edit_name']);
                 $stmt = $conn->prepare("UPDATE config_transaction_types SET name = ? WHERE id = ?");
                 $stmt->bind_param("si", $new_name, $id);
                 $stmt->execute();
                 $msg = "Transaction type updated.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'EDIT TRANSACTION TYPE', 'CONFIG', $id, $new_name, 'Updated a transaction type label.');
+                    logActivity($conn, 'SETTINGS', 'EDIT TRANSACTION TYPE', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_transaction_types', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
                 }
             } elseif ($action === 'del_trans_type' && isset($_POST['id'])) {
                 $id = (int)$_POST['id'];
@@ -281,6 +326,20 @@ $setting_res = $conn->query("SELECT setting_value FROM config_inventory_settings
 $allow_negative = 0;
 if ($setting_res && $setting_res->num_rows > 0) {
     $allow_negative = (int)$setting_res->fetch_assoc()['setting_value'];
+}
+
+$receipt_treasurer_name = 'HELENA GESTA';
+$receipt_manager_name = 'VRIAN ANDREW B. PORTUGUESE';
+$receipt_setting_res = $conn->query("SELECT setting_key, setting_value FROM config_inventory_settings WHERE setting_key IN ('receipt_treasurer_name', 'receipt_manager_name')");
+if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
+    while ($row = $receipt_setting_res->fetch_assoc()) {
+        if ($row['setting_key'] === 'receipt_treasurer_name' && trim((string)$row['setting_value']) !== '') {
+            $receipt_treasurer_name = trim((string)$row['setting_value']);
+        }
+        if ($row['setting_key'] === 'receipt_manager_name' && trim((string)$row['setting_value']) !== '') {
+            $receipt_manager_name = trim((string)$row['setting_value']);
+        }
+    }
 }
 ?>
 
@@ -349,7 +408,7 @@ if ($setting_res && $setting_res->num_rows > 0) {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -988,6 +1047,28 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                     </table>
                                 </div>
                             </div>
+
+                            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-signature text-purple-600 mr-2"></i>Receipt Signatories</h3>
+                                    <span class="text-xs text-gray-500">Printable receipt names</span>
+                                </div>
+                                <form method="POST" class="p-4 space-y-4">
+                                    <input type="hidden" name="action" value="update_receipt_signatories">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Checked By / Treasurer</label>
+                                        <input type="text" name="receipt_treasurer_name" value="<?= htmlspecialchars($receipt_treasurer_name) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Noted By / Manager</label>
+                                        <input type="text" name="receipt_manager_name" value="<?= htmlspecialchars($receipt_manager_name) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <p class="text-xs text-gray-500">These names appear on the printed member share receipt.</p>
+                                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                        <i class="fas fa-save mr-2"></i>SAVE RECEIPT NAMES
+                                    </button>
+                                </form>
+                            </div>
                         </div>
                     </div>
 
@@ -1083,11 +1164,82 @@ if ($setting_res && $setting_res->num_rows > 0) {
                                     </table>
                                 </div>
                             </div>
+
+                            <div class="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-weight-hanging text-teal-500 mr-2"></i>Existing Item Units</h3>
+                                    <span class="text-xs text-gray-500"><?= count($unit_types) ?> item(s)</span>
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
+                                        <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
+                                            <tr>
+                                                <th class="px-4 py-3 font-bold tracking-wider">Name</th>
+                                                <th class="px-4 py-3 font-bold tracking-wider text-right">Actions</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody class="divide-y divide-gray-100">
+                                            <?php if (!empty($unit_types)): ?>
+                                                <?php foreach ($unit_types as $unit): ?>
+                                                    <tr class="hover:bg-teal-50 transition-colors">
+                                                        <td class="px-4 py-3 font-semibold text-gray-800">
+                                                            <div id="view_unit_<?= (int)$unit['id'] ?>" class="flex items-center justify-between gap-3">
+                                                                <span><?= htmlspecialchars($unit['name']) ?></span>
+                                                                <button type="button" onclick="toggleEdit('unit_<?= (int)$unit['id'] ?>')" class="text-teal-600 hover:text-teal-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
+                                                            </div>
+                                                            <form method="POST" id="edit_unit_<?= (int)$unit['id'] ?>" class="hidden flex gap-2 mt-2">
+                                                                <input type="hidden" name="action" value="edit_unit">
+                                                                <input type="hidden" name="id" value="<?= (int)$unit['id'] ?>">
+                                                                <input type="text" name="edit_name" value="<?= htmlspecialchars($unit['name']) ?>" required class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-teal-500">
+                                                                <button type="button" onclick="toggleEdit('unit_<?= (int)$unit['id'] ?>')" class="text-gray-400 hover:text-gray-600 transition-colors"><i class="fas fa-times"></i></button>
+                                                                <button type="submit" class="bg-teal-500 hover:bg-teal-600 text-white text-xs font-bold px-3 rounded">SAVE</button>
+                                                            </form>
+                                                        </td>
+                                                        <td class="px-4 py-3 text-right">
+                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this unit type? Existing records will remain saved.');">
+                                                                <input type="hidden" name="action" value="del_unit">
+                                                                <input type="hidden" name="id" value="<?= (int)$unit['id'] ?>">
+                                                                <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
+                                                            </form>
+                                                        </td>
+                                                    </tr>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <tr>
+                                                    <td colspan="2" class="px-4 py-8 text-center text-gray-500">No item units configured yet.</td>
+                                                </tr>
+                                            <?php endif; ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <div class="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                    <h3 class="font-bold text-gray-800"><i class="fas fa-signature text-purple-600 mr-2"></i>Receipt Signatories</h3>
+                                    <span class="text-xs text-gray-500">Printable receipt names</span>
+                                </div>
+                                <form method="POST" class="p-4 space-y-4">
+                                    <input type="hidden" name="action" value="update_receipt_signatories">
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Checked By / Treasurer</label>
+                                        <input type="text" name="receipt_treasurer_name" value="<?= htmlspecialchars($receipt_treasurer_name) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <div>
+                                        <label class="block text-sm font-medium text-gray-700 mb-1">Noted By / Manager</label>
+                                        <input type="text" name="receipt_manager_name" value="<?= htmlspecialchars($receipt_manager_name) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                    </div>
+                                    <p class="text-xs text-gray-500">These names appear on the printed transaction receipt.</p>
+                                    <button type="submit" class="bg-purple-600 hover:bg-purple-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                        <i class="fas fa-save mr-2"></i>SAVE RECEIPT NAMES
+                                    </button>
+                                </form>
+                            </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
-
-                </div>
-            </div>
         </main>
     </div>
 

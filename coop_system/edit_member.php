@@ -119,6 +119,13 @@ sort($civil_statuses);
             color: #570591;
             font-weight: 600;
         }
+        form.uppercase-form input[type="text"],
+        form.uppercase-form select,
+        form.uppercase-form textarea,
+        form.uppercase-form option,
+        form.uppercase-form .radio-card div {
+            text-transform: uppercase;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased overflow-hidden">
@@ -162,7 +169,7 @@ sort($civil_statuses);
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -198,7 +205,7 @@ sort($civil_statuses);
 
             <div class="flex-1 overflow-y-auto p-4 md:p-8">
                 
-                <form action="process_edit_membership.php" method="POST" class="max-w-6xl mx-auto pb-12">
+                <form action="process_edit_membership.php" method="POST" class="max-w-6xl mx-auto pb-12 uppercase-form">
                     
                     <input type="hidden" name="member_id" value="<?= $member_id ?>">
 

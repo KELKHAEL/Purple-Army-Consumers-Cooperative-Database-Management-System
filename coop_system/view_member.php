@@ -126,7 +126,11 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
         .paper-table { width: 100%; border-collapse: collapse; margin-top: 5px; border: 1px solid #000;}
         .paper-table th, .paper-table td { border: 1px solid #000; padding: 6px; text-align: left; font-size: 12px; }
         .paper-table th { background-color: #f0f0f0; text-transform: uppercase; font-size: 10px; }
+        .paper-table td strong { text-transform: uppercase; }
         .paper-table tr { page-break-inside: avoid; }
+        #transactionHistoryList .transaction-card .text-gray-700.font-mono {
+            text-transform: uppercase;
+        }
 
         .certification-section { margin-top: 40px; font-size: 14px; page-break-inside: avoid; }
         .certification-text { text-indent: 40px; line-height: 1.6; margin-bottom: 40px; }
@@ -200,7 +204,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -368,7 +372,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                         <div class="bg-primary text-white p-5 flex justify-between items-center shadow-md relative z-20">
                             <div>
                                 <h4 class="font-bold text-lg"><i class="fas fa-receipt mr-2"></i> Transaction History</h4>
-                                <p class="text-purple-200 text-xs mt-1 capitalize"><?= htmlspecialchars($member['first_name'] . ' ' . $member['last_name']) ?></p>
+                                <p class="text-purple-200 text-xs mt-1 uppercase"><?= htmlspecialchars($member['first_name'] . ' ' . $member['last_name']) ?></p>
                             </div>
                             <span class="bg-purple-800 text-white px-3 py-1 rounded-full text-xs font-bold border border-purple-600 shadow-inner"><?= count($member_transactions) ?> Records</span>
                         </div>

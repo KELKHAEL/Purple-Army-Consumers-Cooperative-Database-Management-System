@@ -127,7 +127,7 @@ sort($civil_statuses); // Standard Alphabetical
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY

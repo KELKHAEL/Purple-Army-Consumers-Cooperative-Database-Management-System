@@ -7,6 +7,26 @@ if (empty($transaction_types) && function_exists('getTransactionTypes')) {
     $transaction_types = getTransactionTypes($conn, false);
 }
 
+function isExcludedSalesPurchaseType(string $label): bool {
+    $normalized = function_exists('mb_strtoupper') ? mb_strtoupper(trim($label), 'UTF-8') : strtoupper(trim($label));
+    return in_array($normalized, [
+        'MEMBERSHIP FEE',
+        'SHARE CAPITAL',
+        'MEMBERSHIP SHARE CAPITAL',
+        'SHARES CAPITAL',
+        'SHARE',
+    ], true);
+}
+
+$transaction_types = array_values(array_filter($transaction_types, function ($type) {
+    return !isExcludedSalesPurchaseType((string)($type['name'] ?? ''));
+}));
+
+$transaction_type_names = array_map(static function (array $type): string {
+    return trim((string)($type['name'] ?? ''));
+}, $transaction_types);
+$transaction_type_order = array_flip($transaction_type_names);
+
 function getConfiguredUnitTypes(mysqli $conn): array {
     $units = [];
     $result = $conn->query("SELECT id, name FROM config_unit_types ORDER BY name ASC");
@@ -62,7 +82,196 @@ function buildManualItemLine(string $qty, string $unit, string $name, float $cos
     return trim(implode(' ', $parts));
 }
 
+function normalizeManualTxnText(string $input): string {
+    $value = html_entity_decode($input, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    $value = preg_replace('/[\x00-\x1F\x7F]/u', '', $value);
+    $value = preg_replace('/\s+/u', ' ', trim($value));
+    if ($value === '') {
+        return '';
+    }
+    return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
+}
+
+function normalizeManualTxnMoney($input): string {
+    $value = preg_replace('/[^0-9\.\-]/', '', (string)$input);
+    if ($value === '' || !is_numeric($value)) {
+        return number_format(0, 2, '.', '');
+    }
+    return number_format((float)$value, 2, '.', '');
+}
+
+function normalizeManualTxnItems(string $itemsDetails): string {
+    $lines = preg_split("/\r\n|\n|\r/", $itemsDetails) ?: [];
+    $normalized = [];
+    foreach ($lines as $line) {
+        $line = normalizeManualTxnText($line);
+        if ($line !== '') {
+            $normalized[] = $line;
+        }
+    }
+    return implode("\n", $normalized);
+}
+
+function buildManualTxnFingerprint(array $record): string {
+    return sha1(json_encode([
+        'transaction_date' => normalizeTxnImportIdentifier((string)($record['transaction_date'] ?? '')),
+        'member_id' => (int)($record['member_id'] ?? 0),
+        'member_name' => normalizeManualTxnText((string)($record['member_name'] ?? '')),
+        'transaction_type' => normalizeManualTxnText((string)($record['transaction_type'] ?? '')),
+        'items_details' => normalizeManualTxnItems((string)($record['items_details'] ?? '')),
+        'invoice_no' => normalizeTxnImportIdentifier((string)($record['invoice_no'] ?? '')),
+        'payment_status' => normalizeManualTxnText((string)($record['payment_status'] ?? '')),
+        'downpayment' => normalizeManualTxnMoney($record['downpayment'] ?? 0),
+        'remaining_balance' => normalizeManualTxnMoney($record['remaining_balance'] ?? 0),
+        'amount' => normalizeManualTxnMoney($record['amount'] ?? 0),
+    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+}
+
+function saveManualTxnRecord(mysqli $conn, array $record): array {
+    $reference_no = trim((string)($record['invoice_no'] ?? ''));
+    if ($reference_no === '') {
+        return ['status' => 'error', 'title' => 'Invalid Entry', 'message' => 'Please enter a reference number.'];
+    }
+
+    $incoming_date = trim((string)($record['transaction_date'] ?? date('Y-m-d')));
+    $incoming_fingerprint = buildManualTxnFingerprint($record);
+    $incoming_member_id = isset($record['member_id']) && $record['member_id'] !== '' ? (int)$record['member_id'] : null;
+    $allow_conflict = !empty($record['allow_conflict_proceed']);
+
+    $check = $conn->prepare("SELECT transaction_id, transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance FROM transactions WHERE invoice_no = ?");
+    if (!$check) {
+        return ['status' => 'error', 'title' => 'Database Error', 'message' => 'Unable to read transaction records.'];
+    }
+
+    $check->bind_param("s", $reference_no);
+    $check->execute();
+    $existing = $check->get_result();
+
+    $exact_match_id = null;
+    $conflict_dates = [];
+    if ($existing && $existing->num_rows > 0) {
+        while ($existing_row = $existing->fetch_assoc()) {
+            $existing_date = trim((string)($existing_row['transaction_date'] ?? ''));
+            if (normalizeTxnImportIdentifier($existing_date) !== normalizeTxnImportIdentifier($incoming_date)) {
+                $conflict_dates[] = $existing_date;
+                continue;
+            }
+
+            $existing_fingerprint = buildManualTxnFingerprint($existing_row);
+            if ($existing_fingerprint === $incoming_fingerprint) {
+                $exact_match_id = (int)$existing_row['transaction_id'];
+                break;
+            }
+        }
+    }
+    $check->close();
+
+    if (!empty($conflict_dates) && !$allow_conflict) {
+        $conflict_dates = array_values(array_unique(array_filter($conflict_dates)));
+        return [
+            'status' => 'conflict',
+            'title' => 'Receipt Conflict',
+            'message' => 'Receipt number <strong>' . htmlspecialchars($reference_no) . '</strong> already exists on a different date: <strong>' . htmlspecialchars(implode(', ', $conflict_dates)) . '</strong>.<br>Do you want to proceed anyway?',
+            'conflict_dates' => $conflict_dates,
+        ];
+    }
+
+    $member_id = $incoming_member_id;
+    $stmt = null;
+
+    if ($exact_match_id !== null) {
+        $stmt = $conn->prepare("UPDATE transactions SET transaction_date = ?, member_id = ?, member_name = ?, transaction_type = ?, amount = ?, items_details = ?, invoice_no = ?, payment_status = ?, downpayment = ?, remaining_balance = ? WHERE transaction_id = ?");
+        if (!$stmt) {
+            return ['status' => 'error', 'title' => 'Database Error', 'message' => 'Unable to update the matching transaction.'];
+        }
+        $stmt->bind_param(
+            "sissdsssddi",
+            $incoming_date,
+            $member_id,
+            $record['member_name'],
+            $record['transaction_type'],
+            $record['amount'],
+            $record['items_details'],
+            $reference_no,
+            $record['payment_status'],
+            $record['downpayment'],
+            $record['remaining_balance'],
+            $exact_match_id
+        );
+        if (!$stmt->execute()) {
+            $stmt->close();
+            return ['status' => 'error', 'title' => 'Database Error', 'message' => 'Unable to overwrite the matching transaction.'];
+        }
+        $stmt->close();
+        return ['status' => 'updated', 'transaction_id' => $exact_match_id];
+    }
+
+    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    if (!$stmt) {
+        return ['status' => 'error', 'title' => 'Database Error', 'message' => 'Unable to prepare the transaction save.'];
+    }
+    $stmt->bind_param(
+        "sissdsssdd",
+        $incoming_date,
+        $member_id,
+        $record['member_name'],
+        $record['transaction_type'],
+        $record['amount'],
+        $record['items_details'],
+        $reference_no,
+        $record['payment_status'],
+        $record['downpayment'],
+        $record['remaining_balance']
+    );
+    if (!$stmt->execute()) {
+        $stmt->close();
+        return ['status' => 'error', 'title' => 'Database Error', 'message' => 'Unable to save the manual transaction.'];
+    }
+    $transaction_id = (int)$conn->insert_id;
+    $stmt->close();
+
+    return ['status' => 'inserted', 'transaction_id' => $transaction_id];
+}
+
 $unit_types = getConfiguredUnitTypes($conn);
+
+if (isset($_GET['cancel_manual_conflict']) && $_GET['cancel_manual_conflict'] === '1') {
+    unset($_SESSION['pending_manual_transaction'], $_SESSION['pending_manual_conflict_message']);
+    header("Location: transactions.php");
+    exit();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['confirm_same_receipt_conflict']) && !empty($_SESSION['pending_manual_transaction']) && is_array($_SESSION['pending_manual_transaction'])) {
+    $pending_txn = $_SESSION['pending_manual_transaction'];
+    $pending_txn['allow_conflict_proceed'] = true;
+    $save_result = saveManualTxnRecord($conn, $pending_txn);
+    unset($_SESSION['pending_manual_transaction'], $_SESSION['pending_manual_conflict_message']);
+
+    if (($save_result['status'] ?? '') === 'inserted' || ($save_result['status'] ?? '') === 'updated') {
+        if (function_exists('logActivity')) {
+            logActivity(
+                $conn,
+                'SALES',
+                'ADD MANUAL TRANSACTION',
+                'TRANSACTION',
+                (int)($save_result['transaction_id'] ?? 0),
+                (string)($pending_txn['invoice_no'] ?? ''),
+                'Type: ' . ($pending_txn['transaction_type'] ?? '') . ', Items: ' . (int)($pending_txn['item_count'] ?? 0) . ', Amount: ' . number_format((float)($pending_txn['amount'] ?? 0), 2)
+            );
+        }
+
+        $_SESSION['alert_title'] = "Transaction Saved";
+        $_SESSION['alert_message'] = "The transaction was saved after confirmation.";
+        $_SESSION['alert_type'] = "success";
+    } else {
+        $_SESSION['alert_title'] = $save_result['title'] ?? 'Database Error';
+        $_SESSION['alert_message'] = $save_result['message'] ?? 'Unable to save the manual transaction.';
+        $_SESSION['alert_type'] = "error";
+    }
+
+    header("Location: transactions.php");
+    exit();
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_manual_transaction_multi'])) {
     $transaction_type_id = (int)($_POST['transaction_type_id'] ?? 0);
@@ -158,45 +367,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_manual_transactio
     }
     $payment_status = strtoupper($payment_status !== '' ? $payment_status : 'COMPLETED');
 
-    $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE invoice_no = ? LIMIT 1");
-    if ($check) {
-        $check->bind_param("s", $reference_no);
-        $check->execute();
-        $existing = $check->get_result();
-        if ($existing && $existing->num_rows > 0) {
-            $check->close();
-            $_SESSION['alert_title'] = "Duplicate Reference";
-            $_SESSION['alert_message'] = "The reference number already exists in the transaction records.";
-            $_SESSION['alert_type'] = "error";
-            header("Location: transactions.php");
-            exit();
-        }
-        $check->close();
+    $record = [
+        'transaction_date' => $transaction_date,
+        'member_id' => $member_id,
+        'member_name' => $member_name,
+        'transaction_type' => $transaction_type,
+        'amount' => $amount,
+        'items_details' => $items_details,
+        'invoice_no' => $reference_no,
+        'payment_status' => $payment_status,
+        'downpayment' => $downpayment,
+        'remaining_balance' => $remaining_balance,
+        'item_count' => count($item_lines),
+    ];
+
+    $save_result = saveManualTxnRecord($conn, $record);
+    if (($save_result['status'] ?? '') === 'conflict') {
+        $_SESSION['pending_manual_transaction'] = $record;
+        $_SESSION['pending_manual_conflict_message'] = $save_result['message'] ?? '';
+        $_SESSION['manual_conflict_title'] = $save_result['title'] ?? 'Receipt Conflict';
+        $_SESSION['show_manual_conflict_confirm'] = 1;
+        header("Location: transactions.php");
+        exit();
     }
 
-    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-    $stmt->bind_param("sissdsssdd", $transaction_date, $member_id, $member_name, $transaction_type, $amount, $items_details, $reference_no, $payment_status, $downpayment, $remaining_balance);
-    if ($stmt->execute()) {
+    if (($save_result['status'] ?? '') === 'inserted' || ($save_result['status'] ?? '') === 'updated') {
         if (function_exists('logActivity')) {
             logActivity(
                 $conn,
                 'SALES',
                 'ADD MANUAL TRANSACTION',
                 'TRANSACTION',
-                $conn->insert_id,
+                (int)($save_result['transaction_id'] ?? 0),
                 $reference_no,
                 'Type: ' . $transaction_type . ', Items: ' . count($item_lines) . ', Amount: ' . number_format($amount, 2)
             );
         }
         $_SESSION['alert_title'] = "Transaction Saved";
-        $_SESSION['alert_message'] = "Manual transaction saved successfully.";
+        $_SESSION['alert_message'] = (($save_result['status'] ?? '') === 'updated')
+            ? "Manual transaction matched an existing exact record and was overwritten."
+            : "Manual transaction saved successfully.";
         $_SESSION['alert_type'] = "success";
     } else {
-        $_SESSION['alert_title'] = "Database Error";
-        $_SESSION['alert_message'] = "Unable to save the manual transaction.";
+        $_SESSION['alert_title'] = $save_result['title'] ?? "Database Error";
+        $_SESSION['alert_message'] = $save_result['message'] ?? "Unable to save the manual transaction.";
         $_SESSION['alert_type'] = "error";
     }
-    $stmt->close();
     header("Location: transactions.php");
     exit();
 }
@@ -232,45 +448,52 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_manual_transactio
     $member_name = 'MANUAL ENTRY';
     $payment_status = 'COMPLETED';
 
-    $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE invoice_no = ? LIMIT 1");
-    if ($check) {
-        $check->bind_param("s", $reference_no);
-        $check->execute();
-        $existing = $check->get_result();
-        if ($existing && $existing->num_rows > 0) {
-            $check->close();
-            $_SESSION['alert_title'] = "Duplicate Reference";
-            $_SESSION['alert_message'] = "The reference number already exists in the transaction records.";
-            $_SESSION['alert_type'] = "error";
-            header("Location: transactions.php");
-            exit();
-        }
-        $check->close();
+    $record = [
+        'transaction_date' => $transaction_date,
+        'member_id' => $member_id,
+        'member_name' => $member_name,
+        'transaction_type' => $transaction_type,
+        'amount' => $amount,
+        'items_details' => $items_details,
+        'invoice_no' => $reference_no,
+        'payment_status' => $payment_status,
+        'downpayment' => 0,
+        'remaining_balance' => 0,
+        'item_count' => 1,
+    ];
+
+    $save_result = saveManualTxnRecord($conn, $record);
+    if (($save_result['status'] ?? '') === 'conflict') {
+        $_SESSION['pending_manual_transaction'] = $record;
+        $_SESSION['pending_manual_conflict_message'] = $save_result['message'] ?? '';
+        $_SESSION['manual_conflict_title'] = $save_result['title'] ?? 'Receipt Conflict';
+        $_SESSION['show_manual_conflict_confirm'] = 1;
+        header("Location: transactions.php");
+        exit();
     }
 
-    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
-    $stmt->bind_param("sissdsss", $transaction_date, $member_id, $member_name, $transaction_type, $amount, $items_details, $reference_no, $payment_status);
-    if ($stmt->execute()) {
+    if (($save_result['status'] ?? '') === 'inserted' || ($save_result['status'] ?? '') === 'updated') {
         if (function_exists('logActivity')) {
             logActivity(
                 $conn,
                 'SALES',
                 'ADD MANUAL TRANSACTION',
                 'TRANSACTION',
-                $conn->insert_id,
+                (int)($save_result['transaction_id'] ?? 0),
                 $reference_no,
                 'Type: ' . $transaction_type . ', Item: ' . $item_name . ', Qty: ' . $item_quantity . ', Amount: ' . number_format($amount, 2)
             );
         }
         $_SESSION['alert_title'] = "Transaction Saved";
-        $_SESSION['alert_message'] = "Manual transaction saved successfully.";
+        $_SESSION['alert_message'] = (($save_result['status'] ?? '') === 'updated')
+            ? "Manual transaction matched an existing exact record and was overwritten."
+            : "Manual transaction saved successfully.";
         $_SESSION['alert_type'] = "success";
     } else {
-        $_SESSION['alert_title'] = "Database Error";
-        $_SESSION['alert_message'] = "Unable to save the manual transaction.";
+        $_SESSION['alert_title'] = $save_result['title'] ?? "Database Error";
+        $_SESSION['alert_message'] = $save_result['message'] ?? "Unable to save the manual transaction.";
         $_SESSION['alert_type'] = "error";
     }
-    $stmt->close();
     header("Location: transactions.php");
     exit();
 }
@@ -280,34 +503,188 @@ function getTransactionRows(mysqli $conn): array {
     $sql = "SELECT t.*, COALESCE(ct.name, t.transaction_type) AS transaction_type_label
             FROM transactions t
             LEFT JOIN config_transaction_types ct ON LOWER(TRIM(t.transaction_type)) = LOWER(TRIM(ct.name))
-            ORDER BY COALESCE(ct.name, t.transaction_type) ASC, t.transaction_date DESC, t.transaction_id DESC";
+            ORDER BY t.transaction_date DESC, t.invoice_no DESC, COALESCE(ct.name, t.transaction_type) ASC, t.transaction_id DESC";
     $result = $conn->query($sql);
     if ($result && $result->num_rows > 0) {
         while ($row = $result->fetch_assoc()) {
+            $label = trim((string)($row['transaction_type_label'] ?? $row['transaction_type'] ?? ''));
+            if ($label !== '' && isExcludedSalesPurchaseType($label)) {
+                continue;
+            }
             $rows[] = $row;
         }
     }
     return $rows;
 }
 
-function groupTransactionRows(array $rows): array {
+function groupTransactionRows(array $rows, array $typeOrder = []): array {
     $grouped = [];
     foreach ($rows as $row) {
         $label = trim((string)($row['transaction_type_label'] ?? $row['transaction_type'] ?? 'Other'));
         if ($label === '') {
             $label = 'Other';
         }
+        if (isExcludedSalesPurchaseType($label)) {
+            continue;
+        }
         if (!isset($grouped[$label])) {
             $grouped[$label] = [];
         }
         $grouped[$label][] = $row;
     }
-    ksort($grouped, SORT_NATURAL | SORT_FLAG_CASE);
+
+    if (!empty($typeOrder)) {
+        uksort($grouped, function ($a, $b) use ($typeOrder) {
+            $aRank = array_key_exists($a, $typeOrder) ? (int)$typeOrder[$a] : PHP_INT_MAX;
+            $bRank = array_key_exists($b, $typeOrder) ? (int)$typeOrder[$b] : PHP_INT_MAX;
+            if ($aRank === $bRank) {
+                return strnatcasecmp($a, $b);
+            }
+            return $aRank <=> $bRank;
+        });
+    } else {
+        ksort($grouped, SORT_NATURAL | SORT_FLAG_CASE);
+    }
     return $grouped;
 }
 
+function getInventorySettingValue(mysqli $conn, string $settingKey, string $default = ''): string {
+    $stmt = $conn->prepare("SELECT setting_value FROM config_inventory_settings WHERE setting_key = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('s', $settingKey);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result && $result->num_rows > 0) {
+            $value = (string)($result->fetch_assoc()['setting_value'] ?? '');
+            $stmt->close();
+            return $value !== '' ? $value : $default;
+        }
+        $stmt->close();
+    }
+    return $default;
+}
+
+function normalizeReceiptUnitKey(string $unit): string {
+    $unit = function_exists('mb_strtoupper') ? mb_strtoupper(trim($unit), 'UTF-8') : strtoupper(trim($unit));
+    $unit = preg_replace('/\s+/u', ' ', $unit);
+    return trim($unit);
+}
+
+function parseReceiptItemLine(string $line, array $unitLookup = []): array {
+    $line = trim(preg_replace('/\s+/u', ' ', $line));
+    if ($line === '') {
+        return [];
+    }
+
+    $result = [
+        'qty' => '',
+        'unit' => '',
+        'name' => $line,
+        'cost' => '',
+        'amount' => '',
+    ];
+
+    $left = $line;
+    $right = '';
+    if (strpos($line, '@') !== false) {
+        [$left, $right] = array_pad(explode('@', $line, 2), 2, '');
+    }
+
+    $left = trim($left);
+    $right = trim($right);
+
+    if ($left !== '') {
+        $tokens = preg_split('/\s+/u', $left) ?: [];
+        if (!empty($tokens) && preg_match('/^(\d+(?:\.\d+)?)(?:x)?$/i', $tokens[0], $qtyMatch)) {
+            $result['qty'] = $qtyMatch[1];
+            array_shift($tokens);
+
+            if (!empty($tokens)) {
+                $candidate_unit = normalizeReceiptUnitKey($tokens[0]);
+                if ($candidate_unit !== '' && in_array($candidate_unit, $unitLookup, true)) {
+                    $result['unit'] = array_shift($tokens);
+                }
+            }
+
+            $result['name'] = trim(implode(' ', $tokens));
+        } else {
+            $result['name'] = $left;
+        }
+    }
+
+    if ($right !== '') {
+        $right = preg_replace('/[^\d\.\-\=,\s]/u', ' ', $right);
+        preg_match_all('/\d[\d,]*(?:\.\d+)?/u', $right, $numberMatches);
+        $numbers = $numberMatches[0] ?? [];
+
+        if (!empty($numbers)) {
+            $result['cost'] = str_replace(',', '', $numbers[0]);
+        }
+        if (count($numbers) > 1) {
+            $result['amount'] = str_replace(',', '', $numbers[1]);
+        }
+        if ($result['amount'] === '' && $result['qty'] !== '' && $result['cost'] !== '') {
+            $result['amount'] = (string)(((float)str_replace(',', '', $result['qty'])) * (float)$result['cost']);
+        }
+    }
+
+    if ($result['amount'] === '' && $result['qty'] !== '' && $result['cost'] !== '') {
+        $result['amount'] = (string)(((float)str_replace(',', '', $result['qty'])) * (float)$result['cost']);
+    }
+
+    return $result;
+}
+
+function buildReceiptPayload(array $row, array $unitLookup, string $treasurerName, string $managerName): array {
+    $items = [];
+    $rawLines = preg_split("/\r\n|\n|\r/", (string)($row['items_details'] ?? '')) ?: [];
+    foreach ($rawLines as $rawLine) {
+        $parsed = parseReceiptItemLine((string)$rawLine, $unitLookup);
+        if (!empty($parsed)) {
+            $items[] = $parsed;
+        }
+    }
+
+    $transaction_amount = (float)($row['amount'] ?? 0);
+    if ($transaction_amount > 0 && count($items) === 1) {
+        $onlyItem = $items[0];
+        $parsedCost = (float)str_replace(',', '', (string)($onlyItem['cost'] ?? '0'));
+        $parsedAmount = (float)str_replace(',', '', (string)($onlyItem['amount'] ?? '0'));
+        if ($parsedCost <= 0 && $parsedAmount <= 0) {
+            $items[0]['qty'] = $onlyItem['qty'] !== '' ? $onlyItem['qty'] : '1';
+            $items[0]['cost'] = number_format($transaction_amount, 2, '.', '');
+            $items[0]['amount'] = number_format($transaction_amount, 2, '.', '');
+        }
+    }
+
+    return [
+        'transaction_id' => (int)($row['transaction_id'] ?? 0),
+        'transaction_date' => (string)($row['transaction_date'] ?? ''),
+        'member_name' => (string)($row['member_name'] ?? ''),
+        'transaction_type' => (string)($row['transaction_type_label'] ?? $row['transaction_type'] ?? ''),
+        'invoice_no' => (string)($row['invoice_no'] ?? ''),
+        'payment_status' => (string)($row['payment_status'] ?? 'COMPLETED'),
+        'downpayment' => (float)($row['downpayment'] ?? 0),
+        'remaining_balance' => (float)($row['remaining_balance'] ?? 0),
+        'amount' => (float)($row['amount'] ?? 0),
+        'items' => $items,
+        'treasurer_name' => $treasurerName,
+        'manager_name' => $managerName,
+    ];
+}
+
 $transaction_rows = getTransactionRows($conn);
-$transactions_by_type = groupTransactionRows($transaction_rows);
+$transactions_by_type = groupTransactionRows($transaction_rows, $transaction_type_order);
+$receipt_unit_lookup = [];
+foreach ($unit_types as $unitRow) {
+    $receipt_unit_lookup[] = normalizeReceiptUnitKey((string)($unitRow['name'] ?? ''));
+}
+$receipt_treasurer_name = getInventorySettingValue($conn, 'receipt_treasurer_name', 'HELENA GESTA');
+$receipt_manager_name = getInventorySettingValue($conn, 'receipt_manager_name', 'VRIAN ANDREW B. PORTUGUESE');
+$receipt_payloads = [];
+foreach ($transaction_rows as $receipt_row) {
+    $receipt_payloads[(int)$receipt_row['transaction_id']] = buildReceiptPayload($receipt_row, $receipt_unit_lookup, $receipt_treasurer_name, $receipt_manager_name);
+}
 
 if (isset($_GET['template']) && $_GET['template'] === 'excel') {
     require_once __DIR__ . '/vendor/autoload.php';
@@ -440,6 +817,20 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     </script>
     <style>
         .transactions-print-header { display: none; }
+        #transactionsReportCard .tx-group h4,
+        #transactionsReportCard .tx-group td,
+        #transactionsReportCard td,
+        #transactionsReportCard .tx-group .text-gray-700,
+        #transactionsReportCard .tx-group .text-gray-900 {
+            text-transform: uppercase;
+        }
+        #manualTransactionModal input[type="text"],
+        #manualTransactionModal select,
+        #manualTransactionModal option,
+        #transactionTypeFilter,
+        #transactionTypeFilter option {
+            text-transform: uppercase;
+        }
         @media print {
             @page { margin: 14mm; }
             html, body {
@@ -565,6 +956,27 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             </div>
         </div>
     </div>
+
+    <div id="manualConflictModal" class="fixed inset-0 z-[1001] hidden items-center justify-center p-4">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="manualConflictBox">
+            <div class="px-6 py-4 flex items-center gap-3 border-b bg-amber-50 border-amber-100">
+                <i class="fas fa-triangle-exclamation text-2xl text-amber-500"></i>
+                <h3 class="text-lg font-bold tracking-tight text-amber-800"><?= htmlspecialchars($_SESSION['manual_conflict_title'] ?? 'Receipt Conflict') ?></h3>
+            </div>
+            <div class="p-6 text-gray-700 text-sm leading-relaxed" id="manualConflictMessage">
+                <?= $_SESSION['pending_manual_conflict_message'] ?? 'The receipt number conflicts with another transaction on a different date.' ?>
+            </div>
+            <div class="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                <a href="transactions.php?cancel_manual_conflict=1" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg transition-colors shadow-sm">CANCEL</a>
+                <form action="transactions.php" method="POST" class="m-0">
+                    <input type="hidden" name="confirm_same_receipt_conflict" value="1">
+                    <button type="submit" class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">PROCEED ANYWAY</button>
+                </form>
+            </div>
+        </div>
+    </div>
+    <?php unset($_SESSION['manual_conflict_title'], $_SESSION['pending_manual_conflict_message']); ?>
 
     <div id="manualTransactionModal" class="fixed inset-0 z-[999] hidden items-center justify-center p-2 sm:p-4 print:hidden">
         <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="closeManualModal()"></div>
@@ -714,7 +1126,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 bg-primary text-white font-semibold border-l-4 border-primaryDark">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -734,7 +1146,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             </nav>
         </aside>
 
-        <main class="flex-1 flex flex-col h-screen overflow-hidden relative w-full">
+        <main class="flex-1 flex flex-col h-screen min-h-0 overflow-hidden relative w-full">
             
             <header class="bg-white shadow-sm px-4 md:px-8 py-4 flex justify-between items-center z-10 print:hidden">
                 <div class="flex items-center gap-4">
@@ -745,24 +1157,22 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 </div>
             </header>
 
-            <div class="flex-1 overflow-y-auto p-4 md:p-8">
-                
-                <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-4 print:hidden">
-                    
-                    <div class="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 w-full xl:w-auto">
-                        <form action="import_transactions.php" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto bg-white p-1.5 rounded-lg border border-gray-200 shadow-sm items-center">
-                            <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
-                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD</button>
-                        </form>
-                        <a href="transactions.php?template=excel" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
-                            <i class="fas fa-download mr-2"></i>IMPORT TEMPLATE
-                        </a>
-                    </div>
-
-                    <div class="flex flex-col xl:flex-row items-stretch xl:items-center gap-3 w-full xl:w-auto">
+            <div class="flex-1 min-h-0 overflow-y-auto p-4 md:p-8">
+                <div class="mb-6 space-y-4 print:hidden">
+                    <div class="flex flex-col xl:flex-row items-stretch xl:items-center gap-3">
+                        <div class="relative w-full sm:w-80 bg-white border border-gray-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-primary shadow-sm">
+                            <div class="px-3 py-2 text-gray-400 flex items-center justify-center absolute pointer-events-none">
+                                <i class="fas fa-search"></i>
+                            </div>
+                            <input type="text" id="transactionSearch" placeholder="Search receipt, member, item..." oninput="filterTransactionGroups()" class="w-full py-2 pl-10 pr-4 outline-none text-sm text-gray-700 bg-transparent">
+                        </div>
+                        <select id="transactionSortOrder" class="bg-white border border-gray-300 rounded-md px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-56" onchange="filterTransactionGroups()">
+                            <option value="DESC">Later Dates First</option>
+                            <option value="ASC">Earlier Dates First</option>
+                        </select>
                         <select id="transactionTypeFilter" class="bg-white border border-gray-300 rounded-md px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full xl:w-56" onchange="filterTransactionGroups()">
                             <option value="ALL">All Transaction Types</option>
-                            <?php foreach (array_keys($transactions_by_type) as $type_name): ?>
+                            <?php foreach ($transaction_type_names as $type_name): ?>
                                 <option value="<?= htmlspecialchars($type_name) ?>"><?= htmlspecialchars($type_name) ?></option>
                             <?php endforeach; ?>
                         </select>
@@ -772,12 +1182,21 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                         <a href="transactions.php?export=excel" class="bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
                             <i class="fas fa-file-excel mr-2"></i>EXPORT
                         </a>
+                    </div>
+
+                    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                        <form action="import_transactions.php" method="POST" enctype="multipart/form-data" class="flex flex-col sm:flex-row gap-2 w-full sm:w-auto bg-white p-1.5 rounded-lg border border-gray-200 shadow-sm items-center">
+                            <input type="file" name="excel_file" accept=".xls,.xlsx" required class="block w-full text-xs text-gray-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:font-semibold file:bg-purple-50 file:text-primary hover:file:bg-purple-100 transition cursor-pointer">
+                            <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-1.5 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto whitespace-nowrap"><i class="fas fa-upload mr-1"></i> UPLOAD</button>
+                        </form>
+                        <a href="transactions.php?template=excel" class="bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center whitespace-nowrap">
+                            <i class="fas fa-download mr-2"></i>IMPORT TEMPLATE
+                        </a>
                         <button onclick="window.print()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm w-full sm:w-auto text-center border border-gray-300 whitespace-nowrap">
                             <i class="fas fa-print mr-2"></i>PRINT REPORT
                         </button>
                     </div>
                 </div>
-
                 <div class="transactions-print-header">
                     <div class="transactions-print-title">Transaction Records</div>
                     <div class="transactions-print-meta" id="txPrintMetaType">Type: All Transaction Types</div>
@@ -808,6 +1227,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                                     <th class="px-6 py-4 font-bold tracking-wider">Item Details</th>
                                                     <th class="px-6 py-4 font-bold tracking-wider text-right">Amount (PHP)</th>
                                                     <th class="px-6 py-4 font-bold tracking-wider text-center">Status</th>
+                                                    <th class="px-6 py-4 font-bold tracking-wider text-center">Receipt</th>
                                                 </tr>
                                             </thead>
                                             <tbody class="divide-y divide-gray-100">
@@ -816,19 +1236,39 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                                         $date = date('M d, Y', strtotime($row['transaction_date']));
                                                         $inv = !empty($row['invoice_no']) ? htmlspecialchars($row['invoice_no']) : 'N/A';
                                                         $status = !empty($row['payment_status']) ? htmlspecialchars($row['payment_status']) : 'COMPLETED';
+                                                        $remaining_balance = (float)($row['remaining_balance'] ?? 0);
+                                                        $txn_type_label = strtoupper(trim((string)($row['transaction_type_label'] ?? $row['transaction_type'] ?? '')));
+                                                        $needs_payment_link = $remaining_balance > 0 && (
+                                                            stripos($status, 'pending') !== false ||
+                                                            stripos($status, 'downpayment') !== false ||
+                                                            stripos($txn_type_label, 'sale') !== false ||
+                                                            stripos($txn_type_label, 'outsource') !== false
+                                                        );
                                                         if (stripos($status, 'paid') !== false || stripos($status, 'completed') !== false) {
                                                             $stat_badge = "<span class='bg-green-100 text-green-800 px-2.5 py-1 rounded text-xs font-bold uppercase'>$status</span>";
                                                         } else {
                                                             $stat_badge = "<span class='bg-red-100 text-red-800 px-2.5 py-1 rounded text-xs font-bold uppercase'>$status</span>";
                                                         }
                                                     ?>
-                                                    <tr class="hover:bg-purple-50 transition-colors tx-row" data-date="<?= htmlspecialchars($row['transaction_date']) ?>">
+                                                    <tr class="hover:bg-purple-50 transition-colors tx-row" data-date="<?= htmlspecialchars($row['transaction_date']) ?>" data-invoice="<?= htmlspecialchars($row['invoice_no'] ?? '') ?>">
                                                         <td class="px-6 py-4 font-medium text-gray-500"><?= $date ?></td>
                                                         <td class="px-6 py-4 font-mono text-gray-700"><?= $inv ?></td>
-                                                        <td class="px-6 py-4 font-bold text-gray-900 capitalize"><?= htmlspecialchars($row['member_name']) ?></td>
+                                                        <td class="px-6 py-4 font-bold text-gray-900 uppercase"><?= htmlspecialchars($row['member_name']) ?></td>
                                                         <td class="px-6 py-4 text-gray-700 whitespace-normal max-w-xl"><?= htmlspecialchars($row['items_details'] ?? '-') ?></td>
                                                         <td class="px-6 py-4 font-bold text-gray-900 text-right">₱<?= number_format((float)$row['amount'], 2) ?></td>
                                                         <td class="px-6 py-4 text-center"><?= $stat_badge ?></td>
+                                                        <td class="px-6 py-4 text-center">
+                                                            <div class="flex flex-col items-center gap-2">
+                                                                <button type="button" onclick="openReceiptPrint(<?= (int)$row['transaction_id'] ?>)" class="inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary transition-colors hover:bg-primary hover:text-white">
+                                                                    <i class="fas fa-receipt"></i> Print
+                                                                </button>
+                                                                <?php if ($needs_payment_link): ?>
+                                                                    <a href="outsourcing_report.php?paylater_txn=<?= (int)$row['transaction_id'] ?>" class="inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-800 transition-colors hover:bg-amber-500 hover:text-white">
+                                                                        <i class="fas fa-hand-holding-dollar"></i> Update Payment
+                                                                    </a>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                        </td>
                                                     </tr>
                                                 <?php endforeach; ?>
                                             </tbody>
@@ -855,7 +1295,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                             <tbody class="divide-y divide-gray-100">
                                 <?php
                                 try {
-                                    $sql = "SELECT * FROM transactions ORDER BY transaction_date DESC";
+                                    $sql = "SELECT * FROM transactions ORDER BY transaction_date DESC, invoice_no DESC, transaction_id DESC";
                                     $result = $conn->query($sql);
 
                                     if ($result && $result->num_rows > 0) {
@@ -871,10 +1311,10 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                                 $stat_badge = "<span class='bg-red-100 text-red-800 px-2.5 py-1 rounded text-xs font-bold uppercase'>$status</span>";
                                             }
 
-                                            echo "<tr class='hover:bg-purple-50 transition-colors tx-row' data-date='" . htmlspecialchars($row['transaction_date']) . "'>
+                                            echo "<tr class='hover:bg-purple-50 transition-colors tx-row' data-date='" . htmlspecialchars($row['transaction_date']) . "' data-invoice='" . htmlspecialchars($row['invoice_no'] ?? '') . "'>
                                                     <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
                                                     <td class='px-6 py-4 font-mono text-gray-700'>{$inv}</td>
-                                                    <td class='px-6 py-4 font-bold text-gray-900 capitalize'>" . htmlspecialchars($row['member_name']) . "</td>
+                                                    <td class='px-6 py-4 font-bold text-gray-900 uppercase'>" . htmlspecialchars($row['member_name']) . "</td>
                                                     <td class='px-6 py-4 font-bold text-gray-900 text-right'>₱" . number_format($row['amount'], 2) . "</td>
                                                     <td class='px-6 py-4 text-center'>{$stat_badge}</td>
                                                   </tr>";
@@ -896,6 +1336,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     </div>
 
     <script>
+        window.transactionReceiptMap = <?= json_encode($receipt_payloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('mobile-overlay');
@@ -914,6 +1356,236 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             document.getElementById('manualTransactionModal').classList.add('hidden');
             document.getElementById('manualTransactionModal').classList.remove('flex');
             document.body.classList.remove('overflow-hidden');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function formatMoney(value) {
+            const amount = Number(value || 0);
+            return amount.toLocaleString('en-PH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+        }
+
+        function formatReceiptDate(value) {
+            if (!value) {
+                return '';
+            }
+
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return String(value);
+            }
+
+            return parsed.toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        function openReceiptPrint(transactionId) {
+            const data = window.transactionReceiptMap?.[transactionId];
+            if (!data) {
+                return;
+            }
+
+            const receiptItems = (data.items || []).map(item => `
+                <tr>
+                    <td>${escapeHtml(item.name || '')}</td>
+                    <td style="text-align:center;">${escapeHtml(item.qty || '')}</td>
+                    <td style="text-align:center;">${escapeHtml(item.unit || '')}</td>
+                    <td style="text-align:right;">${formatMoney(item.cost || 0)}</td>
+                    <td style="text-align:right;">${formatMoney(item.amount || 0)}</td>
+                </tr>
+            `).join('');
+
+            const receiptHtml = `
+                <!doctype html>
+                <html>
+                <head>
+                    <meta charset="utf-8">
+                    <meta name="viewport" content="width=device-width, initial-scale=1">
+                    <title>Sales Receipt</title>
+                    <style>
+                        :root { --purple: #4b3b86; --ink: #111827; --muted: #6b7280; }
+                        * { box-sizing: border-box; }
+                        body {
+                            margin: 0;
+                            font-family: Arial, Helvetica, sans-serif;
+                            background: #f3f4f6;
+                            color: var(--ink);
+                        }
+                        .sheet {
+                            width: 8.5in;
+                            min-height: 11in;
+                            margin: 0 auto;
+                            background: #fff;
+                            padding: 0.45in 0.55in;
+                            text-transform: uppercase;
+                        }
+                        .title {
+                            text-align: center;
+                            margin-bottom: 16px;
+                            font-weight: 700;
+                            line-height: 1.1;
+                            letter-spacing: 0.04em;
+                        }
+                        .title .brand { font-size: 20px; text-transform: uppercase; }
+                        .title .record { font-size: 18px; text-transform: uppercase; margin-top: 4px; }
+                        .title .date { margin-top: 8px; font-size: 13px; color: var(--muted); }
+                        .meta {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 16px;
+                            margin: 12px 0 14px;
+                            padding: 10px 12px;
+                            border: 1px solid #d1d5db;
+                            border-radius: 10px;
+                            font-size: 13px;
+                        }
+                        .meta strong { display: inline-block; min-width: 90px; }
+                        table {
+                            width: 100%;
+                            border-collapse: collapse;
+                            font-size: 12px;
+                        }
+                        thead th {
+                            background: var(--purple);
+                            color: #000000;
+                            padding: 8px 6px;
+                            text-transform: uppercase;
+                            font-size: 11px;
+                            letter-spacing: 0.06em;
+                            border: 1px solid #372b66;
+                        }
+                        tbody td {
+                            border: 1px solid #1f2937;
+                            padding: 7px 6px;
+                            vertical-align: top;
+                        }
+                        .summary {
+                            display: grid;
+                            grid-template-columns: repeat(2, minmax(0, 1fr));
+                            gap: 10px 28px;
+                            margin-top: 12px;
+                            font-size: 13px;
+                        }
+                        .summary-row {
+                            display: flex;
+                            align-items: baseline;
+                            justify-content: space-between;
+                            gap: 10px;
+                            white-space: nowrap;
+                        }
+                        .summary-label { font-weight: 700; }
+                        .summary-value { min-width: 90px; text-align: right; }
+                        .summary div {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: baseline;
+                            gap: 10px;
+                        }
+                        .summary strong {
+                            min-width: 110px;
+                            text-align: left;
+                        }
+                        .signatures {
+                            display: flex;
+                            justify-content: space-between;
+                            gap: 24px;
+                            margin-top: 36px;
+                        }
+                        .sig {
+                            width: 42%;
+                            text-align: center;
+                            font-size: 13px;
+                        }
+                        .sig .label {
+                            margin-top: 8px;
+                            font-size: 12px;
+                            color: var(--muted);
+                            text-transform: uppercase;
+                        }
+                        .sig .name {
+                            margin-top: 42px;
+                            font-weight: 700;
+                            text-transform: uppercase;
+                        }
+                        @media print {
+                            body { background: #fff; }
+                            .sheet { width: 100%; min-height: auto; margin: 0; padding: 0.3in 0.4in; }
+                            @page { size: letter; margin: 0.35in; }
+                        }
+                    </style>
+                </head>
+                <body onload="window.print(); setTimeout(() => window.close(), 250);">
+                    <div class="sheet">
+                        <div class="title">
+                            <div class="brand">PURPLE ARMY CONSUMERS COOPERATIVE</div>
+                            <div class="record">SALES RECORD</div>
+                            <div class="date">${escapeHtml(formatReceiptDate(data.transaction_date || ''))}</div>
+                        </div>
+
+                        <div class="meta">
+                            <div><strong>Member:</strong> ${escapeHtml(data.member_name || '')}</div>
+                            <div><strong>Ref No.:</strong> ${escapeHtml(data.invoice_no || '')}</div>
+                        </div>
+
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width:40%;">Items</th>
+                                    <th style="width:10%;">Qty</th>
+                                    <th style="width:10%;">Unit</th>
+                                    <th style="width:20%;">Price</th>
+                                    <th style="width:20%;">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                ${receiptItems || '<tr><td colspan="5" style="text-align:center;">No item details available.</td></tr>'}
+                            </tbody>
+                        </table>
+
+                        <div class="summary">
+                            <div><strong>Total Sales:</strong> ₱${formatMoney(data.amount)}</div>
+                            <div><strong>Downpayment:</strong> ₱${formatMoney(data.downpayment)}</div>
+                            <div><strong>Balance:</strong> ₱${formatMoney(data.remaining_balance)}</div>
+                            <div><strong>Status:</strong> ${escapeHtml(data.payment_status || '')}</div>
+                        </div>
+
+                        <div class="signatures">
+                            <div class="sig">
+                                <div>Checked by:</div>
+                                <div class="line"></div>
+                                <div class="name">${escapeHtml(data.treasurer_name || '')}</div>
+                                <div class="label">Treasurer</div>
+                            </div>
+                            <div class="sig">
+                                <div>Noted by:</div>
+                                <div class="line"></div>
+                                <div class="name">${escapeHtml(data.manager_name || '')}</div>
+                                <div class="label">Manager</div>
+                            </div>
+                        </div>
+                    </div>
+                </body>
+                </html>
+            `;
+
+            const receiptWindow = window.open('', '_blank', 'width=900,height=1100');
+            if (!receiptWindow) {
+                return;
+            }
+            receiptWindow.document.open();
+            receiptWindow.document.write(receiptHtml);
+            receiptWindow.document.close();
+            receiptWindow.focus();
         }
 
         function recalculateManualItem(input) {
@@ -1002,27 +1674,94 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
         function updateTransactionPrintMeta() {
             const typeFilter = document.getElementById('transactionTypeFilter').value;
+            const sortOrder = document.getElementById('transactionSortOrder').value;
+            const searchValue = document.getElementById('transactionSearch').value.trim();
 
-            document.getElementById('txPrintMetaType').innerText = 'Type: ' + (typeFilter === 'ALL' ? 'All Transaction Types' : typeFilter);
+            let metaText = 'Type: ' + (typeFilter === 'ALL' ? 'All Transaction Types' : typeFilter);
+            metaText += ' | Sort: ' + (sortOrder === 'ASC' ? 'Earlier Dates First' : 'Later Dates First');
+            if (searchValue !== '') {
+                metaText += ' | Search: ' + searchValue;
+            }
+
+            document.getElementById('txPrintMetaType').innerText = metaText;
         }
 
         function filterTransactionGroups() {
+            const searchValue = document.getElementById('transactionSearch').value.trim().toLowerCase();
             const typeFilter = document.getElementById('transactionTypeFilter').value;
+            const sortOrder = document.getElementById('transactionSortOrder').value;
+            const groupContainer = document.querySelector('#transactionsReportCard .space-y-5');
+            const groups = Array.from(document.querySelectorAll('.tx-group'));
 
-            document.querySelectorAll('.tx-group').forEach(group => {
-                const matchesType = typeFilter === 'ALL' || group.dataset.txType === typeFilter;
-                let visibleRows = 0;
+            const compareTransactions = (a, b) => {
+                const aDate = a.dataset.date || '';
+                const bDate = b.dataset.date || '';
+                const aTime = new Date((aDate || '1970-01-01') + 'T00:00:00').getTime();
+                const bTime = new Date((bDate || '1970-01-01') + 'T00:00:00').getTime();
+                if (aTime !== bTime) {
+                    return sortOrder === 'ASC' ? aTime - bTime : bTime - aTime;
+                }
 
-                group.querySelectorAll('.tx-row').forEach(row => {
-                    const rowVisible = matchesType;
-                    row.style.display = rowVisible ? '' : 'none';
-                    if (rowVisible) visibleRows++;
+                const aInvoice = (a.dataset.invoice || '').toString();
+                const bInvoice = (b.dataset.invoice || '').toString();
+                return sortOrder === 'ASC'
+                    ? aInvoice.localeCompare(bInvoice, undefined, { numeric: true, sensitivity: 'base' })
+                    : bInvoice.localeCompare(aInvoice, undefined, { numeric: true, sensitivity: 'base' });
+            };
+
+            groups.forEach(group => {
+                const rows = Array.from(group.querySelectorAll('.tx-row'));
+                rows.sort(compareTransactions);
+                rows.forEach(row => group.querySelector('tbody').appendChild(row));
+
+                const groupRows = rows.filter(row => {
+                    const matchesType = typeFilter === 'ALL' || group.dataset.txType === typeFilter;
+                    const rowText = row.textContent.toLowerCase();
+                    const matchesSearch = searchValue === '' || rowText.includes(searchValue);
+                    return matchesType && matchesSearch;
                 });
 
-                group.style.display = visibleRows > 0 ? '' : 'none';
+                rows.forEach(row => {
+                    const matchesType = typeFilter === 'ALL' || group.dataset.txType === typeFilter;
+                    const rowText = row.textContent.toLowerCase();
+                    const matchesSearch = searchValue === '' || rowText.includes(searchValue);
+                    const rowVisible = matchesType && matchesSearch;
+                    row.style.display = rowVisible ? '' : 'none';
+                });
+
+                group.style.display = groupRows.length > 0 ? '' : 'none';
             });
 
+            if (groupContainer) {
+                groups.sort((a, b) => {
+                    const aFirst = a.querySelector('.tx-row:not([style*="display: none"])') || a.querySelector('.tx-row');
+                    const bFirst = b.querySelector('.tx-row:not([style*="display: none"])') || b.querySelector('.tx-row');
+                    const aDate = aFirst?.dataset.date || '';
+                    const bDate = bFirst?.dataset.date || '';
+                    const aTime = new Date((aDate || '1970-01-01') + 'T00:00:00').getTime();
+                    const bTime = new Date((bDate || '1970-01-01') + 'T00:00:00').getTime();
+                    if (aTime !== bTime) {
+                        return sortOrder === 'ASC' ? aTime - bTime : bTime - aTime;
+                    }
+                    const aInvoice = aFirst?.dataset.invoice || '';
+                    const bInvoice = bFirst?.dataset.invoice || '';
+                    const invoiceCompare = sortOrder === 'ASC'
+                        ? aInvoice.localeCompare(bInvoice, undefined, { numeric: true, sensitivity: 'base' })
+                        : bInvoice.localeCompare(aInvoice, undefined, { numeric: true, sensitivity: 'base' });
+                    if (invoiceCompare !== 0) {
+                        return invoiceCompare;
+                    }
+                    return a.dataset.txType.localeCompare(b.dataset.txType, undefined, { sensitivity: 'base' });
+                });
+
+                groups.forEach(group => groupContainer.appendChild(group));
+            }
+
             updateTransactionPrintMeta();
+        }
+
+        function refreshTransactionFilters() {
+            filterTransactionGroups();
         }
 
         document.addEventListener('DOMContentLoaded', () => {
@@ -1087,7 +1826,27 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             }, 300);
         });
 
+        function showManualConflictModal() {
+            const modal = document.getElementById('manualConflictModal');
+            const box = document.getElementById('manualConflictBox');
+            if (!modal || !box) return;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            setTimeout(() => {
+                box.classList.remove('translate-y-4', 'opacity-0');
+                box.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+        }
+
         // --- CATCH PHP SESSION ALERTS ---
+        <?php if (!empty($_SESSION['show_manual_conflict_confirm'])): ?>
+            document.addEventListener('DOMContentLoaded', () => {
+                showManualConflictModal();
+            });
+            <?php unset($_SESSION['show_manual_conflict_confirm']); ?>
+        <?php endif; ?>
         <?php if (isset($_SESSION['alert_message'])): ?>
             document.addEventListener('DOMContentLoaded', () => {
                 showCustomAlert(

@@ -16,6 +16,25 @@ if (empty($share_payment_types) && function_exists('getSharePaymentTypes')) {
     $share_payment_types = getSharePaymentTypes($conn, false);
 }
 
+function getInventoryReceiptSetting(mysqli $conn, string $setting_key, string $default = ''): string {
+    $stmt = $conn->prepare("SELECT setting_value FROM config_inventory_settings WHERE setting_key = ? LIMIT 1");
+    if (!$stmt) {
+        return $default;
+    }
+
+    $stmt->bind_param("s", $setting_key);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $row = $result ? $result->fetch_assoc() : null;
+    $stmt->close();
+
+    $value = trim((string)($row['setting_value'] ?? ''));
+    return $value !== '' ? $value : $default;
+}
+
+$receipt_treasurer_name = getInventoryReceiptSetting($conn, 'receipt_treasurer_name', 'HELENA GESTA');
+$receipt_manager_name = getInventoryReceiptSetting($conn, 'receipt_manager_name', 'VRIAN ANDREW B. PORTUGUESE');
+
 // Handle manual share entry.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) {
     $member_id = (int)($_POST['member_id'] ?? 0);
@@ -71,6 +90,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
         $_SESSION['alert_title'] = "Share Added";
         $_SESSION['alert_message'] = "The member share record was saved successfully.";
         $_SESSION['alert_type'] = "success";
+        $_SESSION['show_share_receipt_print'] = 1;
+        $_SESSION['share_receipt_transaction_id'] = (int)$conn->insert_id;
     } else {
         $_SESSION['alert_title'] = "Database Error";
         $_SESSION['alert_message'] = "Unable to save the member share record.";
@@ -94,6 +115,20 @@ if ($share_result) {
     while ($row = $share_result->fetch_assoc()) {
         $share_rows[] = $row;
     }
+}
+
+$share_receipt_payloads = [];
+foreach ($share_rows as $row) {
+    $share_receipt_payloads[(int)$row['transaction_id']] = [
+        'transaction_date' => (string)($row['transaction_date'] ?? ''),
+        'member_name' => (string)($row['member_name'] ?? ''),
+        'transaction_type' => (string)($row['share_type_name'] ?? $row['transaction_type'] ?? ''),
+        'invoice_no' => (string)($row['invoice_no'] ?? ''),
+        'amount' => (float)($row['amount'] ?? 0),
+        'payment_status' => (string)($row['payment_status'] ?? 'COMPLETED'),
+        'treasurer_name' => $receipt_treasurer_name,
+        'manager_name' => $receipt_manager_name,
+    ];
 }
 
 // Fetch Dashboard Stats specifically for Shares and Membership Fees
@@ -234,14 +269,26 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
     </script>
     <style>
         .share-print-header { display: none; }
+        .share-receipt-sheet {
+            width: min(210mm, calc(100vw - 2rem));
+            min-height: 0;
+        }
+        #shareModal input[type="text"],
+        #shareModal select,
+        #shareModal option,
+        #shareTypeFilter,
+        #shareTypeFilter option,
+        #shareReportTable td {
+            text-transform: uppercase;
+        }
         @media print {
-            @page { margin: 14mm; }
+            @page { size: A4; margin: 10mm; }
             html, body {
                 background: #ffffff !important;
                 overflow: visible !important;
                 height: auto !important;
                 font-family: Arial, sans-serif !important;
-                font-size: 12px !important;
+                font-size: 11px !important;
             }
             .print\:hidden { display: none !important; }
             .h-screen,
@@ -300,6 +347,41 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                 -webkit-print-color-adjust: exact;
                 print-color-adjust: exact;
             }
+            body.share-receipt-print-mode > *:not(#shareReceiptModal) {
+                display: none !important;
+            }
+            body.share-receipt-print-mode #shareReceiptModal {
+                display: block !important;
+                position: static !important;
+                inset: auto !important;
+                padding: 0 !important;
+                background: #fff !important;
+            }
+            body.share-receipt-print-mode #shareReceiptModal .share-receipt-shell {
+                box-shadow: none !important;
+                border: none !important;
+                max-width: none !important;
+                width: 100% !important;
+                margin: 0 !important;
+            }
+            body.share-receipt-print-mode #shareReceiptModal .share-receipt-toolbar {
+                display: none !important;
+            }
+            body.share-receipt-print-mode #shareReceiptModal .share-receipt-scrollwrap {
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+            body.share-receipt-print-mode #shareReceiptSheet {
+                width: 100% !important;
+                min-height: 0 !important;
+                padding: 6px 8px !important;
+                margin: 0 auto !important;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+            body.share-receipt-print-mode #shareReceiptSheet .share-receipt-signatories {
+                margin-top: 2in !important;
+            }
         }
     </style>
 </head>
@@ -317,6 +399,70 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
             <div class="p-6 text-gray-600 text-sm leading-relaxed" id="customAlertMessage"></div>
             <div class="bg-gray-50 px-6 py-4 flex justify-end">
                 <button id="customAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="shareReceiptModal" class="fixed inset-0 z-[1001] hidden items-start justify-center p-4 md:p-6 bg-gray-900/60 backdrop-blur-sm print:hidden overflow-y-auto">
+        <div class="share-receipt-shell bg-white rounded-2xl shadow-2xl overflow-hidden mt-4 md:mt-8 w-full max-w-[calc(100vw-2rem)]">
+            <div class="share-receipt-toolbar flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 bg-gray-50">
+                <div>
+                    <div class="text-xs uppercase tracking-[0.2em] text-gray-500">Printable Receipt</div>
+                    <div class="font-bold text-gray-800">Member Share Receipt</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="printShareReceipt()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                        <i class="fas fa-print mr-2"></i>PRINT
+                    </button>
+                    <button type="button" onclick="closeShareReceiptPrint()" class="text-gray-400 hover:text-gray-700">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="share-receipt-scrollwrap p-3 md:p-4 overflow-x-auto">
+                <div id="shareReceiptSheet" class="share-receipt-sheet mx-auto bg-white text-gray-900 border border-gray-200 shadow-sm p-3 md:p-4">
+                    <div class="text-center">
+                        <div class="text-xl md:text-2xl font-black uppercase tracking-wide">PURPLE ARMY CONSUMERS COOPERATIVE</div>
+                        <div class="text-lg md:text-xl font-black uppercase tracking-wide mt-1">MEMBER SHARE RECEIPT</div>
+                        <div id="shareReceiptDate" class="text-sm font-bold mt-1.5"></div>
+                    </div>
+
+                    <div class="mt-3 grid gap-1.5 rounded-xl border border-gray-200 p-2.5 text-sm md:text-base">
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Member:</span>
+                            <span id="shareReceiptMember" class="font-semibold text-right"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Reference No.:</span>
+                            <span id="shareReceiptRef" class="font-semibold text-right"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Transaction Type:</span>
+                            <span id="shareReceiptType" class="font-semibold text-right"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Status:</span>
+                            <span id="shareReceiptStatus" class="font-semibold text-right"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-4 border-t border-dashed border-gray-200 pt-2 mt-1">
+                            <span class="font-black text-gray-700">Amount:</span>
+                            <span id="shareReceiptAmount" class="font-black text-gray-900"></span>
+                        </div>
+                    </div>
+
+                    <div class="share-receipt-signatories mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
+                        <div>
+                            <div class="h-2"></div>
+                            <div class="font-bold uppercase" id="shareReceiptTreasurer"></div>
+                            <div class="text-xs uppercase text-gray-600 mt-1">Checked By / Treasurer</div>
+                        </div>
+                        <div>
+                            <div class="h-2"></div>
+                            <div class="font-bold uppercase" id="shareReceiptManager"></div>
+                            <div class="text-xs uppercase text-gray-600 mt-1">Noted By / Manager</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -392,7 +538,7 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -516,6 +662,7 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                                     <th class="px-6 py-4 font-bold tracking-wider">Transaction Type</th>
                                     <th class="px-6 py-4 font-bold tracking-wider text-right">Amount (PHP)</th>
                                     <th class="px-6 py-4 font-bold tracking-wider text-center">Status</th>
+                                    <th class="px-6 py-4 font-bold tracking-wider text-center print:hidden">Receipt</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100" id="sharesTableBody">
@@ -546,17 +693,22 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                                             echo "<tr class='share-row hover:bg-purple-50 transition-colors' data-date='" . htmlspecialchars($row['transaction_date']) . "' data-type='{$type_value}'>
                                                     <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
                                                     <td class='px-6 py-4 font-mono text-gray-700'>{$inv}</td>
-                                                    <td class='px-6 py-4 font-bold text-gray-900 capitalize'>" . htmlspecialchars($row['member_name']) . "</td>
+                                                    <td class='px-6 py-4 font-bold text-gray-900 uppercase'>" . htmlspecialchars($row['member_name']) . "</td>
                                                     <td class='px-6 py-4'>{$type_badge}</td>
                                                     <td class='px-6 py-4 font-black text-gray-900 text-right'>₱" . number_format($row['amount'], 2) . "</td>
                                                     <td class='px-6 py-4 text-center'>{$stat_badge}</td>
+                                                    <td class='px-6 py-4 text-center print:hidden'>
+                                                        <button type='button' onclick='openShareReceiptPrint(" . (int)$row['transaction_id'] . ")' class='inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary transition-colors hover:bg-primary hover:text-white'>
+                                                            <i class='fas fa-receipt'></i> Print
+                                                        </button>
+                                                    </td>
                                                   </tr>";
                                         }
                                     } else {
-                                        echo "<tr><td colspan='6' class='px-6 py-12 text-center text-gray-500'>No member shares or fees found. Upload an Excel file to begin.</td></tr>";
+                                        echo "<tr><td colspan='7' class='px-6 py-12 text-center text-gray-500'>No member shares or fees found. Upload an Excel file to begin.</td></tr>";
                                     }
                                 } catch (Exception $e) {
-                                    echo "<tr><td colspan='6' class='px-6 py-12 text-center text-red-500 italic'><i class='fas fa-exclamation-triangle mr-2'></i>Database table 'transactions' error.</td></tr>";
+                                    echo "<tr><td colspan='7' class='px-6 py-12 text-center text-red-500 italic'><i class='fas fa-exclamation-triangle mr-2'></i>Database table 'transactions' error.</td></tr>";
                                 }
                                 ?>
                             </tbody>
@@ -569,6 +721,8 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
     </div>
 
     <script>
+        window.shareReceiptMap = <?= json_encode($share_receipt_payloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
             const overlay = document.getElementById('mobile-overlay');
@@ -584,6 +738,87 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         function closeShareModal() {
             document.getElementById('shareModal').classList.add('hidden');
             document.getElementById('shareModal').classList.remove('flex');
+        }
+
+        function formatShareReceiptDate(value) {
+            if (!value) {
+                return '';
+            }
+
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return value;
+            }
+
+            return parsed.toLocaleDateString('en-US', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric'
+            });
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function openShareReceiptPrint(transactionId) {
+            const data = window.shareReceiptMap?.[transactionId];
+            if (!data) {
+                return;
+            }
+
+            document.body.classList.add('share-receipt-print-mode');
+
+            const modal = document.getElementById('shareReceiptModal');
+            if (!modal) {
+                return;
+            }
+
+            const dateEl = document.getElementById('shareReceiptDate');
+            const memberEl = document.getElementById('shareReceiptMember');
+            const refEl = document.getElementById('shareReceiptRef');
+            const typeEl = document.getElementById('shareReceiptType');
+            const statusEl = document.getElementById('shareReceiptStatus');
+            const amountEl = document.getElementById('shareReceiptAmount');
+            const treasurerEl = document.getElementById('shareReceiptTreasurer');
+            const managerEl = document.getElementById('shareReceiptManager');
+
+            if (dateEl) dateEl.textContent = formatShareReceiptDate(data.transaction_date || '');
+            if (memberEl) memberEl.textContent = data.member_name || '';
+            if (refEl) refEl.textContent = data.invoice_no || '';
+            if (typeEl) typeEl.textContent = data.transaction_type || '';
+            if (statusEl) statusEl.textContent = data.payment_status || '';
+            if (amountEl) {
+                amountEl.textContent = String.fromCharCode(8369) + Number(data.amount || 0).toLocaleString('en-PH', {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+            }
+            if (treasurerEl) treasurerEl.textContent = data.treasurer_name || '';
+            if (managerEl) managerEl.textContent = data.manager_name || '';
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeShareReceiptPrint() {
+            const modal = document.getElementById('shareReceiptModal');
+            if (!modal) {
+                return;
+            }
+
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.classList.remove('share-receipt-print-mode');
+        }
+
+        function printShareReceipt() {
+            window.print();
         }
 
         function updateSharePrintMeta() {
@@ -639,6 +874,13 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         }
 
         document.addEventListener('DOMContentLoaded', filterShareRows);
+
+        <?php if (!empty($_SESSION['show_share_receipt_print']) && !empty($_SESSION['share_receipt_transaction_id'])): ?>
+            document.addEventListener('DOMContentLoaded', () => {
+                openShareReceiptPrint(<?= (int)$_SESSION['share_receipt_transaction_id'] ?>);
+            });
+            <?php unset($_SESSION['show_share_receipt_print'], $_SESSION['share_receipt_transaction_id']); ?>
+        <?php endif; ?>
 
         // --- CUSTOM ALERT LOGIC ---
         let alertRedirectUrl = null;

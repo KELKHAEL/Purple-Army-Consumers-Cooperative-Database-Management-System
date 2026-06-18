@@ -74,7 +74,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     // ACTION 1: DELETE PRODUCT
     if (isset($_POST['delete_product_id'])) {
         $del_id = (int)$_POST['delete_product_id'];
-        $name_row = $conn->query("SELECT product_name, product_type FROM inventory WHERE product_id = $del_id LIMIT 1");
+        $name_row = $conn->query("SELECT product_id, product_name, product_type, quantity_type, current_quantity, price FROM inventory WHERE product_id = $del_id LIMIT 1");
         $deleted_product = $name_row ? $name_row->fetch_assoc() : null;
         $conn->query("DELETE FROM inventory WHERE product_id=$del_id");
         if (function_exists('logActivity')) {
@@ -85,7 +85,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 'PRODUCT',
                 $del_id,
                 $deleted_product['product_name'] ?? '',
-                'Removed product from master inventory. Category: ' . ($deleted_product['product_type'] ?? 'N/A')
+                'JSON:' . json_encode([
+                    'table' => 'inventory',
+                    'operation' => 'delete',
+                    'before' => $deleted_product,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             );
         }
         $_SESSION['alert_title'] = "Item Deleted";
@@ -112,7 +116,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 'PRODUCT',
                 $adj_id,
                 $product_row['product_name'] ?? '',
-                'Adjusted stock by ' . $adj_amount . ' from ' . ($before_qty === null ? 'N/A' : $before_qty) . ' to ' . ($after_qty === null ? 'N/A' : $after_qty)
+                'JSON:' . json_encode([
+                    'table' => 'inventory',
+                    'operation' => 'adjust',
+                    'before' => [
+                        'current_quantity' => $before_qty,
+                    ],
+                    'after' => [
+                        'current_quantity' => $after_qty,
+                    ],
+                    'delta' => $adj_amount,
+                ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             );
         }
         $_SESSION['alert_title'] = "Stock Adjusted";
@@ -132,6 +146,8 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
         if (!empty($_POST['product_id'])) {
             // Edit existing product
             $id = (int)$_POST['product_id'];
+            $before_row_res = $conn->query("SELECT product_id, product_name, product_type, quantity_type, current_quantity, price FROM inventory WHERE product_id = $id LIMIT 1");
+            $before_product_row = $before_row_res ? $before_row_res->fetch_assoc() : null;
             $sql = "UPDATE inventory SET product_name='$product_name', product_type='$product_type', quantity_type='$quantity_type', price='$price' WHERE product_id=$id";
             $conn->query($sql);
             if (function_exists('logActivity')) {
@@ -142,7 +158,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     'PRODUCT',
                     $id,
                     $product_name,
-                    'Updated product details. Category: ' . $product_type . ', Unit: ' . $quantity_type . ', Price: ' . number_format($price, 2)
+                    'JSON:' . json_encode([
+                        'table' => 'inventory',
+                        'operation' => 'update',
+                        'before' => $before_product_row,
+                        'after' => [
+                            'product_name' => $product_name,
+                            'product_type' => $product_type,
+                            'quantity_type' => $quantity_type,
+                            'price' => $price,
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
                 );
             }
             $_SESSION['alert_title'] = "Item Updated";
@@ -162,7 +188,17 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                     'PRODUCT',
                     $conn->insert_id,
                     $product_name,
-                    'Added new product. Category: ' . $product_type . ', Unit: ' . $quantity_type . ', Starting Qty: ' . $current_quantity . ', Price: ' . number_format($price, 2)
+                    'JSON:' . json_encode([
+                        'table' => 'inventory',
+                        'operation' => 'add',
+                        'after' => [
+                            'product_name' => $product_name,
+                            'product_type' => $product_type,
+                            'quantity_type' => $quantity_type,
+                            'current_quantity' => $current_quantity,
+                            'price' => $price,
+                        ],
+                    ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
                 );
             }
             $_SESSION['alert_title'] = "Item Added";
@@ -328,6 +364,16 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     </script>
     <style>
         .report-print-header { display: none; }
+        #productModal input[type="text"],
+        #productModal select,
+        #productModal option,
+        #inventoryReportTable td,
+        #inventoryReportTable .product-name-cell,
+        #inventoryReportTable .category-header td,
+        #products-container .product-card h4,
+        #products-container .product-card .text-xs.text-gray-600 {
+            text-transform: uppercase;
+        }
         @media print {
             @page {
                 margin: 14mm;
@@ -570,7 +616,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 bg-primary text-white font-semibold border-l-4 border-primaryDark">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -743,7 +789,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                         }
 
                                         echo "<tr class='inventory-row {$rowBg} hover:bg-purple-50 transition-colors'>
-                                                <td class='px-6 py-4 font-bold text-gray-900 capitalize product-name-cell'>" . htmlspecialchars($row['product_name']) . "</td>
+                                                <td class='px-6 py-4 font-bold text-gray-900 uppercase product-name-cell'>" . htmlspecialchars($row['product_name']) . "</td>
                                                 <td class='px-6 py-4 text-xs font-semibold tracking-wider text-gray-500 uppercase'>" . htmlspecialchars($row['product_type']) . "</td>
                                                 <td class='px-6 py-4 font-semibold text-gray-700'>₱" . number_format($row['price'], 2) . "</td>
                                                 <td class='px-6 py-4 font-bold text-gray-800'>{$quantityText}</td>

@@ -382,6 +382,48 @@ function salesReportQuantityText($row, $plain = false) {
         : "<span class='font-bold text-gray-800'>{$row['quantity_out']}</span> Sold";
 }
 
+function shouldIncludeImportedTransaction(array $row): bool {
+    $type = strtolower(trim((string)($row['transaction_type'] ?? '')));
+    return $type !== '' && (str_contains($type, 'sale') || str_contains($type, 'purchase'));
+}
+
+function normalizeImportedTransactionRow(array $row): array {
+    $transaction_type = strtoupper(trim((string)($row['transaction_type'] ?? '')));
+    $transaction_key = str_contains(strtolower($transaction_type), 'purchase') ? 'PURCHASES' : 'SALES';
+    $payment_status = strtoupper(trim((string)($row['payment_status'] ?? 'COMPLETED')));
+    if ($payment_status === '') {
+        $payment_status = 'COMPLETED';
+    }
+
+    $items_details = trim((string)($row['items_details'] ?? ''));
+    if ($items_details === '') {
+        $items_details = 'Imported transaction';
+    }
+
+    return [
+        'source_type' => 'transaction',
+        'record_date' => (string)($row['transaction_date'] ?? ''),
+        'buyer_name' => (string)($row['member_name'] ?? ''),
+        'product_name' => 'TRANSACTION - ' . $transaction_key,
+        'status' => $payment_status,
+        'receipt_no' => (string)($row['invoice_no'] ?? ''),
+        'payment_method' => $transaction_key,
+        'quantity_out' => 0,
+        'quantity_returned' => 0,
+        'record_id' => (int)($row['transaction_id'] ?? 0),
+        'product_id' => 0,
+        'display_quantity_text' => $items_details,
+        'display_detail_text' => $items_details,
+        'data_method' => $transaction_key,
+        'data_status' => $payment_status,
+        'sort_id' => (int)($row['transaction_id'] ?? 0),
+        'amount' => (float)($row['amount'] ?? 0),
+        'downpayment' => (float)($row['downpayment'] ?? 0),
+        'remaining_balance' => (float)($row['remaining_balance'] ?? 0),
+        'items_details' => $items_details,
+    ];
+}
+
 $generated_at = date('F d, Y h:i A');
 $report_rows = [];
 $sql = "SELECT io.*, i.product_name 
@@ -391,14 +433,54 @@ $sql = "SELECT io.*, i.product_name
 $result = $conn->query($sql);
 if ($result && $result->num_rows > 0) {
     while ($row = $result->fetch_assoc()) {
-        $report_rows[] = $row;
+        $report_rows[] = [
+            'source_type' => 'outsourcing',
+            'record_date' => (string)($row['record_date'] ?? ''),
+            'buyer_name' => (string)($row['buyer_name'] ?? ''),
+            'product_name' => (string)($row['product_name'] ?? ''),
+            'status' => (string)($row['status'] ?? ''),
+            'receipt_no' => (string)($row['receipt_no'] ?? ''),
+            'payment_method' => (string)($row['payment_method'] ?? ''),
+            'quantity_out' => (int)($row['quantity_out'] ?? 0),
+            'quantity_returned' => (int)($row['quantity_returned'] ?? 0),
+            'record_id' => (int)($row['record_id'] ?? 0),
+            'product_id' => (int)($row['product_id'] ?? 0),
+            'display_quantity_text' => salesReportQuantityText($row, true),
+            'display_detail_text' => salesReportQuantityText($row, true),
+            'data_method' => (string)($row['payment_method'] ?? 'Outsourced'),
+            'data_status' => (string)($row['status'] ?? ''),
+            'sort_id' => (int)($row['record_id'] ?? 0),
+        ];
     }
 }
+
+$txn_sql = "SELECT transaction_id, transaction_date, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance
+            FROM transactions
+            WHERE LOWER(transaction_type) LIKE '%sale%' OR LOWER(transaction_type) LIKE '%purchase%'
+            ORDER BY transaction_date DESC, invoice_no DESC, transaction_id DESC";
+$txn_result = $conn->query($txn_sql);
+if ($txn_result && $txn_result->num_rows > 0) {
+    while ($row = $txn_result->fetch_assoc()) {
+        if (!shouldIncludeImportedTransaction($row)) {
+            continue;
+        }
+        $report_rows[] = normalizeImportedTransactionRow($row);
+    }
+}
+
+usort($report_rows, function ($a, $b) {
+    $aTime = strtotime((string)($a['record_date'] ?? '')) ?: 0;
+    $bTime = strtotime((string)($b['record_date'] ?? '')) ?: 0;
+    if ($aTime !== $bTime) {
+        return $bTime <=> $aTime;
+    }
+    return (int)($b['sort_id'] ?? 0) <=> (int)($a['sort_id'] ?? 0);
+});
 
 $paylater_groups = [];
 $paylater_transaction_map = [];
 foreach ($report_rows as $row) {
-    if (($row['payment_method'] ?? '') !== 'Pay Later') {
+    if (($row['source_type'] ?? '') !== 'outsourcing' || ($row['payment_method'] ?? '') !== 'Pay Later') {
         continue;
     }
     $group_key = ($row['record_date'] ?? '') . '||' . ($row['buyer_name'] ?? '');
@@ -462,7 +544,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
         $sheet->setCellValue("A{$row_num}", $row['buyer_name']);
         $sheet->setCellValue("B{$row_num}", $row['product_name']);
-        $sheet->setCellValue("C{$row_num}", salesReportQuantityText($row, true));
+        $sheet->setCellValue("C{$row_num}", $row['display_detail_text'] ?? '');
         $sheet->setCellValue("D{$row_num}", $row['status']);
         $sheet->setCellValue("E{$row_num}", $row['receipt_no']);
         $row_num++;
@@ -506,6 +588,14 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     </script>
     <style>
         .sales-print-header { display: none; }
+        #salesReportTable td,
+        #reconcileModal .font-bold.text-gray-800.text-lg,
+        #referenceModal .font-bold.text-gray-800.text-lg,
+        #payLaterPaymentModal .font-bold.text-gray-800.text-lg,
+        #logTypeFilter,
+        #logTypeFilter option {
+            text-transform: uppercase;
+        }
         @media print {
             @page {
                 margin: 14mm;
@@ -625,7 +715,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 
                 <div class="mb-6 bg-gray-50 p-4 rounded-lg border border-gray-200">
                     <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Product Dispatched</div>
-                    <div class="font-bold text-gray-800 text-lg capitalize" id="rec_product_name"></div>
+                    <div class="font-bold text-gray-800 text-lg uppercase" id="rec_product_name"></div>
                     <div class="mt-2 text-sm text-gray-600">Total Items Taken: <span id="rec_total_qty" class="font-black text-primary"></span></div>
                 </div>
 
@@ -662,7 +752,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
                 <div class="mb-5 bg-gray-50 p-4 rounded-lg border border-gray-200">
                     <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Outsourced Event</div>
-                    <div class="font-bold text-gray-800 text-lg capitalize"><?= htmlspecialchars($_SESSION['ref_event_name'] ?? 'N/A') ?></div>
+                    <div class="font-bold text-gray-800 text-lg uppercase"><?= htmlspecialchars($_SESSION['ref_event_name'] ?? 'N/A') ?></div>
                     <div class="mt-1 text-xs text-gray-500">Date: <?= htmlspecialchars($_SESSION['ref_event_date'] ?? '') ?></div>
                 </div>
 
@@ -694,7 +784,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
                 <div class="mb-5 bg-gray-50 p-4 rounded-lg border border-gray-200">
                     <div class="text-xs text-gray-500 uppercase tracking-wider mb-1">Member</div>
-                    <div class="font-bold text-gray-800 text-lg capitalize"><?= htmlspecialchars($_SESSION['paylater_member_name'] ?? 'N/A') ?></div>
+                    <div class="font-bold text-gray-800 text-lg uppercase"><?= htmlspecialchars($_SESSION['paylater_member_name'] ?? 'N/A') ?></div>
                     <div class="mt-1 text-xs text-gray-500">Date: <?= htmlspecialchars($_SESSION['paylater_date'] ?? '') ?></div>
                 </div>
 
@@ -739,7 +829,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -818,6 +908,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                             <option value="ALL">All Log Types</option>
                             <option value="Pay Later">Pay Later</option>
                             <option value="Others">Outsourced</option>
+                            <option value="SALES">Sales</option>
+                            <option value="PURCHASES">Purchases</option>
                             <option value="PENDING">Pending</option>
                             <option value="RECONCILED">Reconciled</option>
                             <option value="COMPLETED">Completed</option>
@@ -829,6 +921,10 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                             <input type="date" id="dateFilterEnd" class="outline-none text-sm text-gray-700 bg-transparent cursor-pointer">
                             <button onclick="clearDateFilter()" class="text-gray-400 hover:text-red-500 transition-colors ml-1" title="Clear Date Filter"><i class="fas fa-times-circle"></i></button>
                         </div>
+                        <select id="dateSortOrder" class="bg-white border border-gray-300 rounded-md px-4 py-2 text-sm font-semibold text-gray-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-primary w-full sm:w-52">
+                            <option value="DESC">Later Dates First</option>
+                            <option value="ASC">Earlier Dates First</option>
+                        </select>
                         
                         <button onclick="window.print()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm border border-gray-300 w-full sm:w-auto whitespace-nowrap">
                             <i class="fas fa-print mr-2"></i>PRINT REPORT
@@ -864,13 +960,51 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                     $current_date = null;
                                     $printed_paylater = [];
                                     foreach ($report_rows as $row) {
-                                         
-                                        $raw_date = $row['record_date'];
-                                        $date = date('M d, Y', strtotime($raw_date));
-                                        $name = htmlspecialchars($row['buyer_name']);
-                                        $product = htmlspecialchars($row['product_name']);
-                                        $status = $row['status'];
-                                        $method = $row['payment_method'] ?? '';
+                                        $raw_date = (string)($row['record_date'] ?? '');
+                                        $date = $raw_date !== '' ? date('M d, Y', strtotime($raw_date)) : '';
+                                        $name = htmlspecialchars((string)($row['buyer_name'] ?? ''));
+                                        $product = htmlspecialchars((string)($row['product_name'] ?? ''));
+                                        $status = strtoupper((string)($row['status'] ?? ''));
+                                        $method = (string)($row['data_method'] ?? $row['payment_method'] ?? '');
+                                        $source_type = (string)($row['source_type'] ?? 'outsourcing');
+                                        $sort_id = (int)($row['sort_id'] ?? 0);
+
+                                        if ($current_date !== $raw_date) {
+                                            $current_date = $raw_date;
+                                            echo "<tr class='date-header bg-purple-100/60' data-date='{$raw_date}'>
+                                                    <td colspan='5' class='px-6 py-2.5 font-black text-primaryDark uppercase text-sm tracking-widest border-y border-purple-200'>
+                                                        <i class='fas fa-calendar-day mr-2 opacity-50'></i>" . salesReportDateLabel($raw_date) . "
+                                                    </td>
+                                                  </tr>";
+                                        }
+
+                                        if ($source_type === 'transaction') {
+                                            $detail_text = htmlspecialchars((string)($row['display_detail_text'] ?? ''));
+                                            $amount = (float)($row['amount'] ?? 0);
+                                            $downpayment = (float)($row['downpayment'] ?? 0);
+                                            $balance = (float)($row['remaining_balance'] ?? 0);
+
+                                            if ($status === 'COMPLETED' || $status === 'PAID') {
+                                                $badge = "<span class='status-badge-print bg-green-100 text-green-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-green-200'>PAID</span>";
+                                            } elseif ($status === 'DOWNPAYMENT') {
+                                                $badge = "<span class='status-badge-print bg-yellow-100 text-yellow-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-yellow-200'>DOWNPAYMENT</span>";
+                                            } else {
+                                                $badge = "<span class='status-badge-print bg-red-100 text-red-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-red-200'>PENDING</span>";
+                                            }
+
+                                            $transaction_summary = "<div class='font-bold text-primary'>{$product}</div>";
+                                            $transaction_summary .= "<div class='text-xs mt-0.5 whitespace-normal'>" . ($detail_text !== '' ? $detail_text : 'Imported transaction') . "</div>";
+                                            $transaction_summary .= "<div class='text-xs mt-1 text-gray-500'>Total: PHP " . number_format($amount, 2) . " | Downpayment: PHP " . number_format($downpayment, 2) . " | Balance: PHP " . number_format($balance, 2) . "</div>";
+
+                                            echo "<tr class='log-row hover:bg-purple-50 transition-colors' data-date='{$raw_date}' data-order='{$sort_id}' data-method='" . htmlspecialchars($method) . "' data-status='" . htmlspecialchars($status) . "' data-source='transaction'>
+                                                    <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
+                                                    <td class='px-6 py-4 font-bold text-gray-900 uppercase'>{$name}</td>
+                                                    <td class='px-6 py-4 text-gray-700'>{$transaction_summary}</td>
+                                                    <td class='px-6 py-4 text-center'>{$badge}</td>
+                                                    <td class='px-6 py-4 text-right print:hidden'><span class='text-gray-300 text-xs'><i class='fas fa-file-invoice'></i></span></td>
+                                                  </tr>";
+                                            continue;
+                                        }
 
                                         if ($method === 'Pay Later') {
                                             $group_key = $raw_date . '||' . ($row['buyer_name'] ?? '');
@@ -913,8 +1047,8 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                             $items = $paylater_groups[$group_key]['items'] ?? [];
                                             $items_lines = [];
                                             foreach ($items as $it) {
-                                                $pn = htmlspecialchars($it['product_name']);
-                                                $qt = (int)$it['quantity_out'];
+                                                $pn = htmlspecialchars((string)($it['product_name'] ?? ''));
+                                                $qt = (int)($it['quantity_out'] ?? 0);
                                                 $items_lines[] = "{$qt}x {$pn}";
                                             }
                                             $items_summary = !empty($items_lines) ? implode("<br>", $items_lines) : "Pay Later Purchase";
@@ -925,9 +1059,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
                                             $ref_line = ($t_ref && $t_ref !== 'N/A' && $t_ref !== 'OUTSOURCED') ? "<div class='text-[10px] font-mono text-gray-500 mt-1'>REF: " . htmlspecialchars($t_ref) . "</div>" : "";
 
-                                            echo "<tr class='log-row hover:bg-purple-50 transition-colors' data-date='{$raw_date}' data-method='Pay Later' data-status='{$t_status}'>
+                                            echo "<tr class='log-row hover:bg-purple-50 transition-colors' data-date='{$raw_date}' data-order='{$sort_id}' data-method='Pay Later' data-status='" . htmlspecialchars($t_status) . "' data-source='outsourcing'>
                                                     <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
-                                                    <td class='px-6 py-4 font-bold text-gray-900 capitalize'>{$name}</td>
+                                                    <td class='px-6 py-4 font-bold text-gray-900 uppercase'>{$name}</td>
                                                     <td class='px-6 py-4 text-gray-700'>
                                                         <div class='font-bold text-primary'>PAY LATER</div>
                                                         <div class='text-xs mt-0.5'>{$items_summary}</div>
@@ -940,20 +1074,6 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                             continue;
                                         }
 
-                                        if ($current_date !== $raw_date) {
-                                            $current_date = $raw_date;
-                                            echo "<tr class='date-header bg-purple-100/60' data-date='{$raw_date}'>
-                                                    <td colspan='5' class='px-6 py-2.5 font-black text-primaryDark uppercase text-sm tracking-widest border-y border-purple-200'>
-                                                        <i class='fas fa-calendar-day mr-2 opacity-50'></i>" . salesReportDateLabel($raw_date) . "
-                                                    </td>
-                                                  </tr>";
-                                        }
-                                        
-                                        if ($method === 'Pay Later') {
-                                            // Pay Later rows are rendered once per group above.
-                                            continue;
-                                        }
- 
                                         if ($status === 'PENDING') {
                                             $badge = "<span class='status-badge-print bg-orange-100 text-orange-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-orange-200'>PENDING RETURN</span>";
                                             $qty_text = salesReportQuantityText($row);
@@ -971,9 +1091,9 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                             $row_bg = "";
                                         }
 
-                                        echo "<tr class='log-row hover:bg-purple-50 transition-colors {$row_bg}' data-date='{$raw_date}' data-method='" . htmlspecialchars($method) . "' data-status='" . htmlspecialchars($status) . "'>
+                                        echo "<tr class='log-row hover:bg-purple-50 transition-colors {$row_bg}' data-date='{$raw_date}' data-order='{$sort_id}' data-method='" . htmlspecialchars($method) . "' data-status='" . htmlspecialchars($status) . "' data-source='outsourcing'>
                                                 <td class='px-6 py-4 font-medium text-gray-500'>{$date}</td>
-                                                <td class='px-6 py-4 font-bold text-gray-900 capitalize'>{$name}</td>
+                                                <td class='px-6 py-4 font-bold text-gray-900 uppercase'>{$name}</td>
                                                 <td class='px-6 py-4 text-gray-700'>
                                                     <div class='font-bold text-primary'>{$product}</div>
                                                     <div class='text-xs mt-0.5'>{$qty_text}</div>
@@ -1031,22 +1151,26 @@ function cancelPayLaterModal() {
 
         // --- UNIFIED SEARCH & DATE FILTER LOGIC ---
         function filterTable() {
-            let searchText = document.getElementById('logSearch').value.toLowerCase();
-            let startDate = document.getElementById('dateFilterStart').value;
-            let endDate = document.getElementById('dateFilterEnd').value;
-            let typeFilter = document.getElementById('logTypeFilter').value;
-            let rows = document.querySelectorAll('#logTableBody tr');
-            let currentHeader = null;
-            let visibleItemsUnderHeader = 0;
+            const searchText = document.getElementById('logSearch').value.toLowerCase();
+            const startDate = document.getElementById('dateFilterStart').value;
+            const endDate = document.getElementById('dateFilterEnd').value;
+            const typeFilter = document.getElementById('logTypeFilter').value;
+            const sortOrder = document.getElementById('dateSortOrder').value;
+            const tbody = document.getElementById('logTableBody');
+            if (!tbody) return;
+
+            const rows = Array.from(tbody.querySelectorAll(':scope > tr'));
+            const groups = [];
+            let currentGroup = null;
 
             rows.forEach(row => {
                 if (row.classList.contains('date-header')) {
-                    if (currentHeader !== null) {
-                        currentHeader.style.display = visibleItemsUnderHeader > 0 ? '' : 'none';
-                    }
-                    currentHeader = row;
-                    visibleItemsUnderHeader = 0;
-                    row.style.display = '';
+                    currentGroup = {
+                        date: row.dataset.date || '',
+                        header: row,
+                        rows: []
+                    };
+                    groups.push(currentGroup);
                     return;
                 }
 
@@ -1054,60 +1178,98 @@ function cancelPayLaterModal() {
                     return;
                 }
 
-                let textMatch = row.textContent.toLowerCase().includes(searchText);
-                let dateMatch = true;
-                let typeMatch = true;
-
-                if (typeFilter !== 'ALL') {
-                    const rowMethod = row.dataset.method || '';
-                    const rowStatus = (row.dataset.status || '').toUpperCase();
-                    const rowMethodUpper = rowMethod.toUpperCase();
-                    typeMatch = rowMethod === typeFilter || rowMethodUpper === typeFilter.toUpperCase() || rowStatus === typeFilter.toUpperCase();
+                if (!currentGroup) {
+                    currentGroup = {
+                        date: row.dataset.date || '',
+                        header: null,
+                        rows: []
+                    };
+                    groups.push(currentGroup);
                 }
 
-                if (startDate || endDate) {
-                    let rowDateStr = row.dataset.date; // e.g. "2024-05-20"
-                    
-                    if (rowDateStr) {
-                        let rowDate = new Date(rowDateStr);
-                        rowDate.setHours(0,0,0,0);
-                        
-                        if (startDate) {
-                            let sDate = new Date(startDate);
-                            sDate.setHours(0,0,0,0);
-                            if (rowDate < sDate) dateMatch = false;
-                        }
-                        
-                        if (endDate) {
-                            let eDate = new Date(endDate);
-                            eDate.setHours(0,0,0,0);
-                            if (rowDate > eDate) dateMatch = false;
-                        }
+                currentGroup.rows.push(row);
+            });
+
+            const toTime = (dateValue) => {
+                const time = new Date((dateValue || '1970-01-01') + 'T00:00:00').getTime();
+                return Number.isNaN(time) ? 0 : time;
+            };
+
+            groups.forEach(group => {
+                const visibleRows = [];
+                group.rows.forEach(row => {
+                    const rowText = row.textContent.toLowerCase();
+                    const textMatch = searchText === '' || rowText.includes(searchText);
+                    const rowDate = row.dataset.date || '';
+                    const rowTime = toTime(rowDate);
+                    const startTime = startDate ? toTime(startDate) : null;
+                    const endTime = endDate ? toTime(endDate) : null;
+                    let dateMatch = true;
+                    if (startTime !== null && rowTime < startTime) {
+                        dateMatch = false;
                     }
-                }
+                    if (endTime !== null && rowTime > endTime) {
+                        dateMatch = false;
+                    }
 
-                if (textMatch && dateMatch && typeMatch) {
-                    row.style.display = '';
-                    visibleItemsUnderHeader++;
-                } else {
-                    row.style.display = 'none';
+                    let typeMatch = true;
+                    if (typeFilter !== 'ALL') {
+                        const rowMethod = (row.dataset.method || '').toUpperCase();
+                        const rowStatus = (row.dataset.status || '').toUpperCase();
+                        const typeUpper = typeFilter.toUpperCase();
+                        typeMatch = rowMethod === typeUpper || rowStatus === typeUpper;
+                    }
+
+                    const rowVisible = textMatch && dateMatch && typeMatch;
+                    row.style.display = rowVisible ? '' : 'none';
+                    if (rowVisible) {
+                        visibleRows.push(row);
+                    }
+                });
+
+                group.visibleRows = visibleRows;
+                if (group.header) {
+                    group.header.style.display = visibleRows.length > 0 ? '' : 'none';
                 }
             });
 
-            if (currentHeader !== null) {
-                currentHeader.style.display = visibleItemsUnderHeader > 0 ? '' : 'none';
-            }
+            groups.sort((a, b) => {
+                const aTime = toTime(a.date);
+                const bTime = toTime(b.date);
+                return sortOrder === 'ASC' ? aTime - bTime : bTime - aTime;
+            });
+
+            tbody.innerHTML = '';
+            groups.forEach(group => {
+                if (group.visibleRows.length === 0) {
+                    return;
+                }
+
+                if (group.header) {
+                    tbody.appendChild(group.header);
+                }
+
+                group.visibleRows.sort((a, b) => {
+                    const aOrder = parseInt(a.dataset.order || '0', 10);
+                    const bOrder = parseInt(b.dataset.order || '0', 10);
+                    return sortOrder === 'ASC' ? aOrder - bOrder : bOrder - aOrder;
+                });
+
+                group.visibleRows.forEach(row => tbody.appendChild(row));
+            });
 
             document.getElementById('salesPrintMetaType').innerText = 'Type: ' + (typeFilter === 'ALL' ? 'All Log Types' : typeFilter);
             document.getElementById('salesPrintMetaDate').innerText = (startDate || endDate)
-                ? 'Date Range: ' + (startDate || 'Start') + ' to ' + (endDate || 'End')
-                : 'Date Range: All Dates';
+                ? 'Date Range: ' + (startDate || 'Start') + ' to ' + (endDate || 'End') + ' | Sort: ' + (sortOrder === 'ASC' ? 'Earlier Dates First' : 'Later Dates First')
+                : 'Date Range: All Dates | Sort: ' + (sortOrder === 'ASC' ? 'Earlier Dates First' : 'Later Dates First');
         }
 
         document.getElementById('logSearch').addEventListener('keyup', filterTable);
         document.getElementById('logTypeFilter').addEventListener('change', filterTable);
         document.getElementById('dateFilterStart').addEventListener('change', filterTable);
         document.getElementById('dateFilterEnd').addEventListener('change', filterTable);
+        document.getElementById('dateSortOrder').addEventListener('change', filterTable);
+        document.addEventListener('DOMContentLoaded', filterTable);
 
         function clearDateFilter() {
             document.getElementById('dateFilterStart').value = '';

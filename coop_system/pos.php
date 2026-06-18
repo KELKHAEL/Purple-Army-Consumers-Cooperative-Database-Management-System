@@ -9,6 +9,25 @@ if ($setting_res && $setting_res->num_rows > 0) {
     $allow_negative = (int)$setting_res->fetch_assoc()['setting_value'];
 }
 
+function getInventorySettingValue(mysqli $conn, string $settingKey, string $default = ''): string {
+    $stmt = $conn->prepare("SELECT setting_value FROM config_inventory_settings WHERE setting_key = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('s', $settingKey);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result && $result->num_rows > 0) {
+            $value = (string)($result->fetch_assoc()['setting_value'] ?? '');
+            $stmt->close();
+            return $value !== '' ? $value : $default;
+        }
+        $stmt->close();
+    }
+    return $default;
+}
+
+$receipt_treasurer_name = getInventorySettingValue($conn, 'receipt_treasurer_name', 'HELENA GESTA');
+$receipt_manager_name = getInventorySettingValue($conn, 'receipt_manager_name', 'VRIAN ANDREW B. PORTUGUESE');
+
 // Fetch all members for the dropdown link
 $members = [];
 $mem_res = $conn->query("SELECT member_id, last_name, first_name FROM members ORDER BY last_name ASC");
@@ -20,6 +39,7 @@ if ($mem_res) {
 
 // PROCESS THE CHECKOUT CART
 $checkout_success = false;
+$checkout_receipt = null;
 if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout'])) {
     $cart = json_decode($_POST['cart_data'], true);
     $payment = $conn->real_escape_string($_POST['payment_method']);
@@ -76,7 +96,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout'])) {
 
         // 2. Process Modern Transactions Table (To link to view_member.php)
         $items_details = $conn->real_escape_string(implode("\n", $items_details_arr));
-        $trans_type = ($payment === 'Others') ? 'OUTSOURCED' : 'PURCHASE';
+        $trans_type = 'SALES';
         
         $sql_trans = "INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) 
                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)";
@@ -88,6 +108,32 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_POST['checkout'])) {
         $stmt_trans->execute();
         $transaction_id = (int)$conn->insert_id;
         $stmt_trans->close();
+
+        $receipt_items = [];
+        foreach ($cart as $item) {
+            $qty = (int)($item['qty'] ?? 0);
+            $price = (float)($item['price'] ?? 0);
+            $receipt_items[] = [
+                'name' => (string)($item['name'] ?? ''),
+                'qty' => $qty,
+                'unit' => (string)($item['unit'] ?? ''),
+                'cost' => $price,
+                'amount' => $qty * $price,
+            ];
+        }
+        $checkout_receipt = [
+            'transaction_id' => $transaction_id,
+            'transaction_date' => $date,
+            'member_name' => $buyer_name,
+            'invoice_no' => $receipt,
+            'payment_status' => $status,
+            'downpayment' => 0,
+            'remaining_balance' => $balance,
+            'amount' => $total_cart_amount,
+            'items' => $receipt_items,
+            'treasurer_name' => $receipt_treasurer_name,
+            'manager_name' => $receipt_manager_name,
+        ];
 
         if (function_exists('logActivity')) {
             $item_count = count($cart);
@@ -138,6 +184,50 @@ if ($res_units) {
             }
         }
     </script>
+    <style>
+        #products-container .product-card h4,
+        #products-container .product-card .text-xs.text-gray-600,
+        #cart-container .cart-item-name,
+        #member_select,
+        #member_select option,
+        #payment_method,
+        #payment_method option {
+            text-transform: uppercase;
+        }
+        @media print {
+            @page { size: A4; margin: 10mm; }
+            body {
+                background: #fff !important;
+                overflow: visible !important;
+            }
+            body.checkout-receipt-print-mode > *:not(#checkoutReceiptModal) {
+                display: none !important;
+            }
+            body.checkout-receipt-print-mode #checkoutReceiptModal {
+                display: block !important;
+                position: static !important;
+                inset: auto !important;
+                padding: 0 !important;
+                background: #fff !important;
+            }
+            body.checkout-receipt-print-mode #checkoutReceiptModal .print\:hidden {
+                display: none !important;
+            }
+            body.checkout-receipt-print-mode #checkoutReceiptSheet {
+                width: 100% !important;
+                box-shadow: none !important;
+                border: none !important;
+                padding: 6px 8px !important;
+                margin: 0 auto !important;
+                break-inside: avoid !important;
+                page-break-inside: avoid !important;
+            }
+            body.checkout-receipt-print-mode #checkoutReceiptModal .checkout-receipt-scrollwrap {
+                padding: 0 !important;
+                overflow: visible !important;
+            }
+        }
+    </style>
 </head>
 <body class="bg-gray-50 text-gray-800 font-sans antialiased overflow-hidden">
 
@@ -153,6 +243,92 @@ if ($res_units) {
             <div class="p-6 text-gray-600 text-sm leading-relaxed" id="customAlertMessage"></div>
             <div class="bg-gray-50 px-6 py-4 flex justify-end">
                 <button id="customAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="checkoutReceiptModal" class="fixed inset-0 z-[1001] hidden items-start justify-center p-4 md:p-6 bg-gray-900/60 backdrop-blur-sm print:hidden overflow-y-auto">
+        <div class="bg-white rounded-2xl shadow-2xl overflow-hidden mt-4 md:mt-8 w-full max-w-[calc(100vw-2rem)]">
+            <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-gray-200 bg-gray-50 print:hidden">
+                <div>
+                    <div class="text-xs uppercase tracking-[0.2em] text-gray-500">Printable Receipt</div>
+                    <div class="font-bold text-gray-800">Sales Receipt</div>
+                </div>
+                <div class="flex items-center gap-2">
+                    <button type="button" onclick="printCheckoutReceipt()" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                        <i class="fas fa-print mr-2"></i>PRINT
+                    </button>
+                    <button type="button" onclick="closeCheckoutReceipt()" class="text-gray-400 hover:text-gray-700">
+                        <i class="fas fa-times text-lg"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="checkout-receipt-scrollwrap p-3 md:p-4 overflow-x-auto">
+                <div id="checkoutReceiptSheet" class="mx-auto bg-white text-gray-900 border border-gray-200 shadow-sm p-3 md:p-4">
+                    <div class="text-center">
+                        <div class="text-xl md:text-2xl font-black uppercase tracking-wide">PURPLE ARMY CONSUMERS COOPERATIVE</div>
+                        <div class="text-lg md:text-xl font-black uppercase tracking-wide mt-1">SALES RECORD</div>
+                        <div id="checkoutReceiptDate" class="text-sm font-bold mt-1.5"></div>
+                    </div>
+
+                    <div class="mt-3 grid gap-1.5 rounded-xl border border-gray-200 p-2.5 text-sm md:text-base">
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Member:</span>
+                            <span id="checkoutReceiptMember" class="font-semibold text-right"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-4">
+                            <span class="font-bold text-gray-600">Ref No.:</span>
+                            <span id="checkoutReceiptRef" class="font-semibold text-right"></span>
+                        </div>
+                    </div>
+
+                    <div class="mt-3 overflow-hidden rounded-xl border border-gray-200">
+                        <table class="w-full text-sm border-collapse">
+                            <thead>
+                                <tr class="bg-gray-50">
+                                    <th class="border border-gray-200 px-2 py-2 text-left text-xs font-bold uppercase">Items</th>
+                                    <th class="border border-gray-200 px-2 py-2 text-center text-xs font-bold uppercase">Qty</th>
+                                    <th class="border border-gray-200 px-2 py-2 text-center text-xs font-bold uppercase">Unit</th>
+                                    <th class="border border-gray-200 px-2 py-2 text-right text-xs font-bold uppercase">Price</th>
+                                    <th class="border border-gray-200 px-2 py-2 text-right text-xs font-bold uppercase">Amount</th>
+                                </tr>
+                            </thead>
+                            <tbody id="checkoutReceiptItems"></tbody>
+                        </table>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-2 gap-x-6 gap-y-2 text-sm md:text-base">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="font-black text-gray-700">Total Sales:</span>
+                            <span id="checkoutReceiptTotal" class="font-black text-gray-900"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="font-black text-gray-700">Downpayment:</span>
+                            <span id="checkoutReceiptDownpayment" class="font-black text-gray-900"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="font-black text-gray-700">Balance:</span>
+                            <span id="checkoutReceiptBalance" class="font-black text-gray-900"></span>
+                        </div>
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="font-black text-gray-700">Status:</span>
+                            <span id="checkoutReceiptStatus" class="font-black text-gray-900"></span>
+                        </div>
+                    </div>
+
+                    <div class="checkout-receipt-signatories mt-3 grid grid-cols-1 sm:grid-cols-2 gap-4 text-center">
+                        <div>
+                            <div class="h-2"></div>
+                            <div class="font-bold uppercase" id="checkoutReceiptTreasurer"></div>
+                            <div class="text-xs uppercase text-gray-600 mt-1">Checked By / Treasurer</div>
+                        </div>
+                        <div>
+                            <div class="h-2"></div>
+                            <div class="font-bold uppercase" id="checkoutReceiptManager"></div>
+                            <div class="text-xs uppercase text-gray-600 mt-1">Noted By / Manager</div>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -179,7 +355,7 @@ if ($res_units) {
                     <i class="fas fa-hand-holding-usd w-6"></i> MEMBER SHARES
                 </a>
                 <a href="transactions.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
-                    <i class="fas fa-receipt w-6"></i> TRANSACTIONS
+                    <i class="fas fa-receipt w-6"></i> SALES & PURCHASE LOGS
                 </a>
                 <a href="inventory.php" class="flex items-center px-6 py-3 text-gray-600 hover:bg-purple-50 hover:text-primary font-semibold transition-colors">
                     <i class="fas fa-boxes w-6"></i> INVENTORY
@@ -270,7 +446,7 @@ if ($res_units) {
                                          data-unit='" . strtolower(htmlspecialchars($row['quantity_type'])) . "'>
                                          
                                         <div class='flex-1 mb-3'>
-                                            <h4 class='text-sm font-bold text-gray-800 capitalize leading-tight mb-1 group-hover:text-primary transition-colors'>" . htmlspecialchars($row['product_name']) . "</h4>
+                                            <h4 class='text-sm font-bold text-gray-800 uppercase leading-tight mb-1 group-hover:text-primary transition-colors'>" . htmlspecialchars($row['product_name']) . "</h4>
                                         </div>
                                         
                                         <div class='text-lg font-extrabold text-gray-900 mb-2'>₱" . number_format($row['price'], 2) . "</div>
@@ -280,7 +456,7 @@ if ($res_units) {
                                         </div>
                                         
                                         <button type='button' class='mt-auto w-full bg-white border-2 border-primary text-primary hover:bg-primary hover:text-white font-bold py-2 rounded-lg text-sm transition-all transform active:scale-95' 
-                                            onclick='addToCart({$row['product_id']}, \"" . addslashes($row['product_name']) . "\", {$row['price']}, {$row['current_quantity']})'>
+                                            onclick='addToCart({$row['product_id']}, \"" . addslashes($row['product_name']) . "\", {$row['price']}, {$row['current_quantity']}, \"" . addslashes($row['quantity_type'] ?? '') . "\")'>
                                             <i class='fas fa-cart-plus mr-1'></i> ADD
                                         </button>
                                     </div>";
@@ -422,9 +598,12 @@ if ($res_units) {
             }, 300);
         });
 
+        window.posReceiptData = <?= json_encode($checkout_receipt, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+
         <?php if ($checkout_success): ?>
             document.addEventListener('DOMContentLoaded', () => {
-                showCustomAlert('Transaction Complete', 'The checkout was processed securely. Inventory levels have been updated and linked to the history logs.', 'success', 'transactions.php');
+                showCustomAlert('Transaction Complete', 'The checkout was processed securely and recorded in the sales logs.', 'success');
+                openCheckoutReceipt();
             });
         <?php endif; ?>
 
@@ -536,7 +715,7 @@ if ($res_units) {
         }
 
         // --- CART LOGIC ---
-        function addToCart(id, name, price, maxQty) {
+        function addToCart(id, name, price, maxQty, unit = '') {
             if (cart[id]) {
                 if (allowNegativeStock || cart[id].qty < maxQty) {
                     cart[id].qty++;
@@ -545,7 +724,7 @@ if ($res_units) {
                 }
             } else {
                 if (allowNegativeStock || maxQty > 0) {
-                    cart[id] = { name: name, price: price, qty: 1, max: maxQty };
+                    cart[id] = { name: name, price: price, qty: 1, max: maxQty, unit: unit };
                 } else {
                     showCustomAlert('Out of Stock', `This item is completely out of stock.<br><br><em>(Negative Stock mapping disabled in settings)</em>`, 'error');
                 }
@@ -588,8 +767,8 @@ if ($res_units) {
 
                 container.insertAdjacentHTML('beforeend', `
                     <div class="bg-white border border-gray-200 rounded-xl p-3 flex justify-between items-center shadow-sm relative z-10">
-                        <div class="flex-1 pr-2">
-                            <div class="font-bold text-sm text-gray-800 leading-tight mb-1">${item.name}</div>
+                            <div class="flex-1 pr-2">
+                            <div class="cart-item-name font-bold text-sm text-gray-800 leading-tight mb-1">${item.name}</div>
                             <div class="text-[11px] text-primary font-bold bg-purple-50 inline-block px-1.5 py-0.5 rounded border border-purple-100">₱${item.price.toFixed(2)} ea</div>
                         </div>
                         <div class="flex flex-col items-end gap-2">
@@ -632,9 +811,88 @@ if ($res_units) {
                 return;
             }
 
-            const cartArray = Object.keys(cart).map(id => ({ id: id, name: cart[id].name, price: cart[id].price, qty: cart[id].qty }));
+            const cartArray = Object.keys(cart).map(id => ({ id: id, name: cart[id].name, price: cart[id].price, qty: cart[id].qty, unit: cart[id].unit || '' }));
             document.getElementById('cart_data').value = JSON.stringify(cartArray);
             document.getElementById('checkoutForm').submit();
+        }
+
+        function formatReceiptDate(value) {
+            if (!value) {
+                return '';
+            }
+            const parsed = new Date(value);
+            if (Number.isNaN(parsed.getTime())) {
+                return String(value);
+            }
+            return parsed.toLocaleDateString('en-US', {
+                month: 'long',
+                day: 'numeric',
+                year: 'numeric'
+            });
+        }
+
+        function openCheckoutReceipt() {
+            const data = window.posReceiptData;
+            if (!data) {
+                return;
+            }
+
+            const dateEl = document.getElementById('checkoutReceiptDate');
+            const memberEl = document.getElementById('checkoutReceiptMember');
+            const refEl = document.getElementById('checkoutReceiptRef');
+            const itemsEl = document.getElementById('checkoutReceiptItems');
+            const totalEl = document.getElementById('checkoutReceiptTotal');
+            const downpaymentEl = document.getElementById('checkoutReceiptDownpayment');
+            const balanceEl = document.getElementById('checkoutReceiptBalance');
+            const statusEl = document.getElementById('checkoutReceiptStatus');
+            const treasurerEl = document.getElementById('checkoutReceiptTreasurer');
+            const managerEl = document.getElementById('checkoutReceiptManager');
+
+            if (dateEl) dateEl.textContent = formatReceiptDate(data.transaction_date || '');
+            if (memberEl) memberEl.textContent = data.member_name || '';
+            if (refEl) refEl.textContent = data.invoice_no || '';
+            if (itemsEl) {
+                itemsEl.innerHTML = (data.items || []).map(item => `
+                    <tr>
+                        <td class="border border-gray-200 px-2 py-2">${String(item.name || '').toUpperCase()}</td>
+                        <td class="border border-gray-200 px-2 py-2 text-center">${item.qty ?? ''}</td>
+                        <td class="border border-gray-200 px-2 py-2 text-center">${String(item.unit || '').toUpperCase()}</td>
+                        <td class="border border-gray-200 px-2 py-2 text-right">${String.fromCharCode(8369)}${Number(item.cost || 0).toFixed(2)}</td>
+                        <td class="border border-gray-200 px-2 py-2 text-right">${String.fromCharCode(8369)}${Number(item.amount || 0).toFixed(2)}</td>
+                    </tr>
+                `).join('') || '<tr><td colspan="5" class="border border-gray-200 px-2 py-3 text-center">No item details available.</td></tr>';
+            }
+            if (totalEl) totalEl.textContent = String.fromCharCode(8369) + Number(data.amount || 0).toFixed(2);
+            if (downpaymentEl) downpaymentEl.textContent = String.fromCharCode(8369) + Number(data.downpayment || 0).toFixed(2);
+            if (balanceEl) balanceEl.textContent = String.fromCharCode(8369) + Number(data.remaining_balance || 0).toFixed(2);
+            if (statusEl) statusEl.textContent = data.payment_status || '';
+            if (treasurerEl) treasurerEl.textContent = data.treasurer_name || '';
+            if (managerEl) managerEl.textContent = data.manager_name || '';
+
+            const modal = document.getElementById('checkoutReceiptModal');
+            if (modal) {
+                modal.classList.remove('hidden');
+                modal.classList.add('flex');
+            }
+        }
+
+        function closeCheckoutReceipt() {
+            const modal = document.getElementById('checkoutReceiptModal');
+            if (!modal) {
+                return;
+            }
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
+            document.body.classList.remove('checkout-receipt-print-mode');
+        }
+
+        function printCheckoutReceipt() {
+            document.body.classList.add('checkout-receipt-print-mode');
+            window.addEventListener('afterprint', function cleanupReceiptPrint() {
+                document.body.classList.remove('checkout-receipt-print-mode');
+                window.removeEventListener('afterprint', cleanupReceiptPrint);
+            }, { once: true });
+            window.print();
         }
     </script>
 </body>
