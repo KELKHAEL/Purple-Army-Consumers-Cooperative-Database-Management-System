@@ -630,17 +630,17 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             .sales-print-header {
                 display: block !important;
                 text-align: center;
-                margin-bottom: 16px;
+                margin-bottom: 2px;
                 color: #111827;
             }
             .sales-print-title {
                 font-size: 20px !important;
                 font-weight: 700;
-                margin-bottom: 8px;
+                margin-bottom: 2px;
             }
             .sales-print-date {
                 font-size: 14px !important;
-                margin-bottom: 14px;
+                margin-bottom: 2px;
             }
             #salesReportCard {
                 border: none !important;

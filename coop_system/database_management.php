@@ -175,13 +175,21 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
             // Handle Inventory Settings Toggle
             elseif ($action === 'update_inv_settings') {
                 $before_allow = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'allow_negative_stock'")->fetch_assoc();
+                $before_report = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'inventory_report_manager_name'")->fetch_assoc();
                 $allow_neg = isset($_POST['allow_negative']) ? '1' : '0';
+                $inventory_report_manager_name = trim((string)($_POST['inventory_report_manager_name'] ?? ''));
                 $stmt = $conn->prepare("UPDATE config_inventory_settings SET setting_value = ? WHERE setting_key = 'allow_negative_stock'");
                 $stmt->bind_param("s", $allow_neg);
                 $stmt->execute();
+                $stmt->close();
+
+                $stmt = $conn->prepare("INSERT INTO config_inventory_settings (setting_key, setting_value) VALUES ('inventory_report_manager_name', ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value)");
+                $stmt->bind_param("s", $inventory_report_manager_name);
+                $stmt->execute();
+                $stmt->close();
                 $msg = "Inventory permissions updated successfully.";
                 if (function_exists('logActivity')) {
-                    logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', dmAuditDetails(['table' => 'config_inventory_settings', 'before' => ['allow_negative_stock' => (string)($before_allow['setting_value'] ?? '0')], 'after' => ['allow_negative_stock' => $allow_neg]]));
+                    logActivity($conn, 'SETTINGS', 'UPDATE INVENTORY SETTINGS', 'CONFIG', 'allow_negative_stock', 'allow_negative_stock', dmAuditDetails(['table' => 'config_inventory_settings', 'before' => ['allow_negative_stock' => (string)($before_allow['setting_value'] ?? '0'), 'inventory_report_manager_name' => (string)($before_report['setting_value'] ?? 'VRIAN ANDREW B. PORTUGUESE')], 'after' => ['allow_negative_stock' => $allow_neg, 'inventory_report_manager_name' => $inventory_report_manager_name]]));
                 }
             } elseif ($action === 'update_receipt_signatories') {
                 $before_rows = [];
@@ -326,6 +334,15 @@ $setting_res = $conn->query("SELECT setting_value FROM config_inventory_settings
 $allow_negative = 0;
 if ($setting_res && $setting_res->num_rows > 0) {
     $allow_negative = (int)$setting_res->fetch_assoc()['setting_value'];
+}
+
+$inventory_report_manager_name = 'VRIAN ANDREW B. PORTUGUESE';
+$inventory_report_setting_res = $conn->query("SELECT setting_value FROM config_inventory_settings WHERE setting_key = 'inventory_report_manager_name' LIMIT 1");
+if ($inventory_report_setting_res && $inventory_report_setting_res->num_rows > 0) {
+    $inventory_report_manager_name = trim((string)($inventory_report_setting_res->fetch_assoc()['setting_value'] ?? ''));
+    if ($inventory_report_manager_name === '') {
+        $inventory_report_manager_name = 'VRIAN ANDREW B. PORTUGUESE';
+    }
 }
 
 $receipt_treasurer_name = 'HELENA GESTA';
@@ -703,6 +720,12 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                         <p class="text-xs text-gray-500 mt-2 leading-relaxed">
                                             If enabled, the POS will allow you to check out and outsource items even if the current master inventory is at 0. This creates discrepancies that you must review later.
                                         </p>
+                                    </div>
+
+                                    <div>
+                                        <label class="block text-sm font-bold text-gray-800 mb-1">Inventory Report Signatory</label>
+                                        <input type="text" name="inventory_report_manager_name" value="<?= htmlspecialchars($inventory_report_manager_name) ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        <p class="text-xs text-gray-500 mt-2 leading-relaxed">This name appears on the printed daily inventory report.</p>
                                     </div>
 
                                     <button type="submit" class="mt-auto bg-gray-800 hover:bg-gray-900 text-white py-2 px-4 rounded-md text-sm font-semibold transition-colors w-full shadow-md"><i class="fas fa-save mr-2"></i>SAVE CONTROLS</button>

@@ -33,6 +33,22 @@ function inventoryReportDateLabel($date) {
     return date('F d, Y', strtotime($date));
 }
 
+function getInventorySettingValue(mysqli $conn, string $settingKey, string $default = ''): string {
+    $stmt = $conn->prepare("SELECT setting_value FROM config_inventory_settings WHERE setting_key = ? LIMIT 1");
+    if ($stmt) {
+        $stmt->bind_param('s', $settingKey);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        if ($result && $result->num_rows > 0) {
+            $value = trim((string)($result->fetch_assoc()['setting_value'] ?? ''));
+            $stmt->close();
+            return $value !== '' ? $value : $default;
+        }
+        $stmt->close();
+    }
+    return $default;
+}
+
 function inventoryEnsureSnapshot(mysqli $conn, string $snapshotDate): void {
     $snapshotDate = trim($snapshotDate);
     if ($snapshotDate === '') {
@@ -80,6 +96,7 @@ $report_date = inventoryReportDate($_GET['report_date'] ?? ($_GET['report_to'] ?
 $report_from = $report_date;
 $report_to = $report_date;
 $is_past_date = ($report_date < $today);
+$inventory_report_signatory_name = getInventorySettingValue($conn, 'inventory_report_manager_name', 'VRIAN ANDREW B. PORTUGUESE');
 
 $sort_options = [
     'alpha' => 'Product Name (A-Z)',
@@ -437,7 +454,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             }
             .report-print-header {
                 display: block !important;
-                margin-bottom: 12px;
+                margin-bottom: 2px;
                 color: #111827;
                 text-align: center;
                 font-family: Arial, sans-serif !important;
@@ -495,7 +512,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             }
             .inventory-report-signatory {
                 display: block !important;
-                margin-top: 2in !important;
+                margin-top: 0.5in !important;
                 text-align: left !important;
                 width: 100% !important;
                 padding-left: 0 !important;
@@ -853,7 +870,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <div class="inventory-report-signatory hidden print:block px-6 pb-6">
                         <div class="w-full max-w-sm text-left">
                             <div class="text-sm font-semibold text-gray-700">Noted by:</div>
-                            <div class="mt-10 font-bold uppercase text-gray-900">VRIAN ANDREW B. PORTUGUESE</div>
+                            <div class="mt-10 font-bold uppercase text-gray-900"><?= htmlspecialchars($inventory_report_signatory_name) ?></div>
                             <div class="text-xs uppercase text-gray-600 mt-1">Manager</div>
                         </div>
                     </div>

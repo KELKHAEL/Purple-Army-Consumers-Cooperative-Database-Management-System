@@ -227,7 +227,7 @@ if ($res_units) {
                 overflow: visible !important;
             }
             body.checkout-receipt-print-mode #checkoutReceiptModal .checkout-receipt-signatories {
-                margin-top: 2in !important;
+                margin-top: 0.5in !important;
             }
         }
     </style>
