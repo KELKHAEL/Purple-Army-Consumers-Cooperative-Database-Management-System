@@ -387,6 +387,21 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
         </div>
     </div>
 
+    <div id="customConfirmModal" class="fixed inset-0 z-[1001] hidden items-center justify-center p-4">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="customConfirmBox">
+            <div id="customConfirmHeader" class="px-6 py-4 flex items-center gap-3 border-b bg-amber-50 border-amber-100">
+                <i id="customConfirmIcon" class="fas fa-triangle-exclamation text-2xl text-amber-500"></i>
+                <h3 id="customConfirmTitle" class="text-lg font-bold tracking-tight text-amber-800">Confirm Action</h3>
+            </div>
+            <div class="p-6 text-gray-700 text-sm leading-relaxed" id="customConfirmMessage"></div>
+            <div class="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                <button type="button" id="customConfirmCancelBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg transition-colors shadow-sm">Cancel</button>
+                <button type="button" id="customConfirmProceedBtn" class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">Proceed</button>
+            </div>
+        </div>
+    </div>
+
     <div class="flex h-screen w-full">
 
         <div id="mobile-overlay" class="fixed inset-0 bg-gray-900 bg-opacity-50 z-40 hidden md:hidden transition-opacity" onclick="toggleSidebar()"></div>
@@ -482,10 +497,10 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                 <span class="text-sm text-gray-700"><?= htmlspecialchars($occ['name']) ?></span>
                                                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button type="button" onclick="toggleEdit('occ_<?= $occ['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
-                                                    <form method="POST" class="inline m-0">
+                                                    <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this occupation?');">
                                                         <input type="hidden" name="action" value="del_occ">
                                                         <input type="hidden" name="id" value="<?= $occ['id'] ?>">
-                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors" onclick="return confirm('Delete this occupation?')"><i class="fas fa-trash-alt text-xs"></i></button>
+                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                                                     </form>
                                                 </div>
                                             </div>
@@ -521,10 +536,10 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                 <span class="text-sm text-gray-700"><?= htmlspecialchars($inc['name']) ?></span>
                                                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button type="button" onclick="toggleEdit('inc_<?= $inc['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
-                                                    <form method="POST" class="inline m-0">
+                                                    <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this income bracket?');">
                                                         <input type="hidden" name="action" value="del_inc">
                                                         <input type="hidden" name="id" value="<?= $inc['id'] ?>">
-                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors" onclick="return confirm('Delete this income bracket?')"><i class="fas fa-trash-alt text-xs"></i></button>
+                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                                                     </form>
                                                 </div>
                                             </div>
@@ -560,10 +575,10 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                 <span class="text-sm text-gray-700"><?= htmlspecialchars($civ['name']) ?></span>
                                                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button type="button" onclick="toggleEdit('civ_<?= $civ['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
-                                                    <form method="POST" class="inline m-0">
+                                                    <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this status?');">
                                                         <input type="hidden" name="action" value="del_civ">
                                                         <input type="hidden" name="id" value="<?= $civ['id'] ?>">
-                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors" onclick="return confirm('Delete this status?')"><i class="fas fa-trash-alt text-xs"></i></button>
+                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                                                     </form>
                                                 </div>
                                             </div>
@@ -602,10 +617,10 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                 <span class="text-sm text-gray-700"><?= htmlspecialchars($cat['name']) ?></span>
                                                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button type="button" onclick="toggleEdit('cat_<?= $cat['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
-                                                    <form method="POST" class="inline m-0">
+                                                    <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this category?');">
                                                         <input type="hidden" name="action" value="del_cat">
                                                         <input type="hidden" name="id" value="<?= $cat['id'] ?>">
-                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors" onclick="return confirm('Delete this category?')"><i class="fas fa-trash-alt text-xs"></i></button>
+                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                                                     </form>
                                                 </div>
                                             </div>
@@ -641,10 +656,10 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                 <span class="text-sm text-gray-700"><?= htmlspecialchars($unit['name']) ?></span>
                                                 <div class="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                                                     <button type="button" onclick="toggleEdit('unit_<?= $unit['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
-                                                    <form method="POST" class="inline m-0">
+                                                    <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this unit type?');">
                                                         <input type="hidden" name="action" value="del_unit">
                                                         <input type="hidden" name="id" value="<?= $unit['id'] ?>">
-                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors" onclick="return confirm('Delete this unit type?')"><i class="fas fa-trash-alt text-xs"></i></button>
+                                                        <button type="submit" class="text-gray-300 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                                                     </form>
                                                 </div>
                                             </div>
@@ -1030,7 +1045,7 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td class="px-4 py-3 text-right">
-                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this share payment type? Existing records will remain saved.');">
+                                                            <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this share payment type? Existing records will remain saved.');">
                                                                 <input type="hidden" name="action" value="del_share_type">
                                                                 <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
                                                                 <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
@@ -1147,7 +1162,7 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                             <?php endif; ?>
                                                         </td>
                                                         <td class="px-4 py-3 text-right">
-                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this transaction type? Existing records will remain saved.');">
+                                                            <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this transaction type? Existing records will remain saved.');">
                                                                 <input type="hidden" name="action" value="del_trans_type">
                                                                 <input type="hidden" name="id" value="<?= (int)$type['id'] ?>">
                                                                 <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
@@ -1196,7 +1211,7 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                                             </form>
                                                         </td>
                                                         <td class="px-4 py-3 text-right">
-                                                            <form method="POST" class="inline m-0" onsubmit="return confirm('Delete this unit type? Existing records will remain saved.');">
+                                                            <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this unit type? Existing records will remain saved.');">
                                                                 <input type="hidden" name="action" value="del_unit">
                                                                 <input type="hidden" name="id" value="<?= (int)$unit['id'] ?>">
                                                                 <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
@@ -1287,6 +1302,7 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
 
         // --- CUSTOM ALERT LOGIC ---
         let alertRedirectUrl = null;
+        let pendingConfirmForm = null;
 
         function showCustomAlert(title, message, type = 'error', redirectUrl = null) {
             const modal = document.getElementById('customAlertModal');
@@ -1338,6 +1354,60 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                     window.location.href = alertRedirectUrl;
                 }
             }, 300);
+        });
+
+        function openConfirmModal(message, formEl = null) {
+            const modal = document.getElementById('customConfirmModal');
+            const box = document.getElementById('customConfirmBox');
+            const msgEl = document.getElementById('customConfirmMessage');
+            const btnProceed = document.getElementById('customConfirmProceedBtn');
+
+            if (!modal || !box || !msgEl || !btnProceed) {
+                return true;
+            }
+
+            pendingConfirmForm = formEl || null;
+            msgEl.innerHTML = message;
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            setTimeout(() => {
+                box.classList.remove('translate-y-4', 'opacity-0');
+                box.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+
+            return false;
+        }
+
+        function closeConfirmModal() {
+            const modal = document.getElementById('customConfirmModal');
+            const box = document.getElementById('customConfirmBox');
+            if (!modal || !box) {
+                return;
+            }
+
+            box.classList.remove('translate-y-0', 'opacity-100');
+            box.classList.add('translate-y-4', 'opacity-0');
+
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 250);
+        }
+
+        document.getElementById('customConfirmCancelBtn')?.addEventListener('click', function() {
+            pendingConfirmForm = null;
+            closeConfirmModal();
+        });
+
+        document.getElementById('customConfirmProceedBtn')?.addEventListener('click', function() {
+            const form = pendingConfirmForm;
+            pendingConfirmForm = null;
+            closeConfirmModal();
+            if (form) {
+                setTimeout(() => form.submit(), 50);
+            }
         });
 
         // Catch Session Alerts

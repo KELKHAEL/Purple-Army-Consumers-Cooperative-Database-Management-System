@@ -493,6 +493,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                 color: #111827 !important;
                 padding: 0 !important;
             }
+            .inventory-report-signatory {
+                display: block !important;
+                margin-top: 2in !important;
+                text-align: left !important;
+                width: 100% !important;
+                padding-left: 0 !important;
+            }
         }
     </style>
 </head>
@@ -842,6 +849,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                                 ?>
                             </tbody>
                         </table>
+                    </div>
+                    <div class="inventory-report-signatory hidden print:block px-6 pb-6">
+                        <div class="w-full max-w-sm text-left">
+                            <div class="text-sm font-semibold text-gray-700">Noted by:</div>
+                            <div class="mt-10 font-bold uppercase text-gray-900">VRIAN ANDREW B. PORTUGUESE</div>
+                            <div class="text-xs uppercase text-gray-600 mt-1">Manager</div>
+                        </div>
                     </div>
                 </div>
 

@@ -622,13 +622,6 @@ unset($_SESSION['alert_title'], $_SESSION['alert_message'], $_SESSION['alert_typ
             </header>
 
             <div class="flex-1 overflow-y-auto p-4 md:p-8">
-                <?php if ($page_alert_message !== ''): ?>
-                    <div class="mb-6 rounded-xl border px-4 py-3 shadow-sm <?= $page_alert_type === 'error' ? 'border-red-200 bg-red-50 text-red-800' : ($page_alert_type === 'info' ? 'border-blue-200 bg-blue-50 text-blue-800' : 'border-green-200 bg-green-50 text-green-800') ?>">
-                        <div class="font-bold uppercase text-xs tracking-wide mb-1"><?= htmlspecialchars($page_alert_title !== '' ? $page_alert_title : 'Notice') ?></div>
-                        <div class="text-sm leading-relaxed"><?= htmlspecialchars($page_alert_message) ?></div>
-                    </div>
-                <?php endif; ?>
-
                 <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
                     <div class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
                         <div class="text-xs font-bold uppercase text-gray-500">Logs Shown</div>
@@ -754,7 +747,7 @@ unset($_SESSION['alert_title'], $_SESSION['alert_message'], $_SESSION['alert_typ
                                                                     <input type="hidden" name="redirect_date" value="<?= htmlspecialchars($selected_date) ?>">
                                                                     <input type="hidden" name="redirect_module" value="<?= htmlspecialchars($module_filter) ?>">
                                                                     <input type="hidden" name="redirect_q" value="<?= htmlspecialchars($search) ?>">
-                                                                    <button type="submit" onclick="return confirm('Revert this activity log entry? This will mark the log as reverted and create a new revert audit entry.');" class="inline-flex items-center gap-2 rounded-md border border-purple-200 bg-purple-100 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-purple-800 transition-colors hover:bg-purple-600 hover:text-white">
+                                                                    <button type="submit" onclick="return openPageConfirmModal('Revert this activity log entry? This will mark the log as reverted and create a new revert audit entry.', this.form);" class="inline-flex items-center gap-2 rounded-md border border-purple-200 bg-purple-100 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wide text-purple-800 transition-colors hover:bg-purple-600 hover:text-white">
                                                                         <i class="fas fa-rotate-left"></i> Revert
                                                                     </button>
                                                                 </form>
@@ -784,6 +777,35 @@ unset($_SESSION['alert_title'], $_SESSION['alert_message'], $_SESSION['alert_typ
         </main>
     </div>
 
+    <div id="pageAlertModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4 print:hidden">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="pageAlertBox">
+            <div id="pageAlertHeader" class="px-6 py-4 flex items-center gap-3 border-b">
+                <i id="pageAlertIcon" class="fas fa-info-circle text-2xl"></i>
+                <h3 id="pageAlertTitle" class="text-lg font-bold tracking-tight">Notice</h3>
+            </div>
+            <div class="p-6 text-gray-600 text-sm leading-relaxed whitespace-pre-line" id="pageAlertMessage"></div>
+            <div class="bg-gray-50 px-6 py-4 flex justify-end">
+                <button id="pageAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="pageConfirmModal" class="fixed inset-0 z-[1001] hidden items-center justify-center p-4 print:hidden">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="pageConfirmBox">
+            <div id="pageConfirmHeader" class="px-6 py-4 flex items-center gap-3 border-b bg-amber-50 border-amber-100">
+                <i id="pageConfirmIcon" class="fas fa-triangle-exclamation text-2xl text-amber-500"></i>
+                <h3 id="pageConfirmTitle" class="text-lg font-bold tracking-tight text-amber-800">Confirm Revert</h3>
+            </div>
+            <div class="p-6 text-gray-700 text-sm leading-relaxed" id="pageConfirmMessage"></div>
+            <div class="bg-gray-50 px-6 py-4 flex justify-end gap-3">
+                <button type="button" id="pageConfirmCancelBtn" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-bold py-2 px-4 rounded-lg transition-colors shadow-sm">Cancel</button>
+                <button type="button" id="pageConfirmProceedBtn" class="bg-amber-600 hover:bg-amber-700 text-white font-bold py-2 px-4 rounded-lg transition-colors shadow-md">Proceed</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -809,6 +831,115 @@ unset($_SESSION['alert_title'], $_SESSION['alert_message'], $_SESSION['alert_typ
                 window.location.search = params.toString();
             }, 30000);
         }
+
+        const pageAlertTitle = <?= json_encode($page_alert_title, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+        const pageAlertMessage = <?= json_encode($page_alert_message, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+        const pageAlertType = <?= json_encode($page_alert_type, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) ?>;
+
+        function openPageAlertModal() {
+            const modal = document.getElementById('pageAlertModal');
+            const box = document.getElementById('pageAlertBox');
+            const icon = document.getElementById('pageAlertIcon');
+            const header = document.getElementById('pageAlertHeader');
+            const title = document.getElementById('pageAlertTitle');
+            const message = document.getElementById('pageAlertMessage');
+
+            if (!modal || !box || !icon || !header || !title || !message) {
+                return;
+            }
+
+            title.textContent = pageAlertTitle || 'Notice';
+            message.textContent = pageAlertMessage || '';
+
+            if (pageAlertType === 'error') {
+                icon.className = 'fas fa-exclamation-circle text-2xl text-red-500';
+                header.className = 'px-6 py-4 flex items-center gap-3 border-b bg-red-50 border-red-100';
+            } else if (pageAlertType === 'info') {
+                icon.className = 'fas fa-info-circle text-2xl text-blue-500';
+                header.className = 'px-6 py-4 flex items-center gap-3 border-b bg-blue-50 border-blue-100';
+            } else {
+                icon.className = 'fas fa-check-circle text-2xl text-green-500';
+                header.className = 'px-6 py-4 flex items-center gap-3 border-b bg-green-50 border-green-100';
+            }
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+
+            setTimeout(() => {
+                box.classList.remove('translate-y-4', 'opacity-0');
+                box.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+        }
+
+        function closePageAlertModal() {
+            const modal = document.getElementById('pageAlertModal');
+            const box = document.getElementById('pageAlertBox');
+            if (!modal || !box) {
+                return;
+            }
+            box.classList.remove('translate-y-0', 'opacity-100');
+            box.classList.add('translate-y-4', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 250);
+        }
+
+        document.getElementById('pageAlertBtn')?.addEventListener('click', closePageAlertModal);
+
+        if (pageAlertMessage) {
+            document.addEventListener('DOMContentLoaded', openPageAlertModal);
+        }
+
+        let pendingPageConfirmForm = null;
+
+        function openPageConfirmModal(message, formEl = null) {
+            const modal = document.getElementById('pageConfirmModal');
+            const box = document.getElementById('pageConfirmBox');
+            const messageEl = document.getElementById('pageConfirmMessage');
+            if (!modal || !box || !messageEl) {
+                return true;
+            }
+
+            pendingPageConfirmForm = formEl || null;
+            messageEl.textContent = message || '';
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+            setTimeout(() => {
+                box.classList.remove('translate-y-4', 'opacity-0');
+                box.classList.add('translate-y-0', 'opacity-100');
+            }, 10);
+            return false;
+        }
+
+        function closePageConfirmModal() {
+            const modal = document.getElementById('pageConfirmModal');
+            const box = document.getElementById('pageConfirmBox');
+            if (!modal || !box) {
+                return;
+            }
+            box.classList.remove('translate-y-0', 'opacity-100');
+            box.classList.add('translate-y-4', 'opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('flex');
+            }, 250);
+        }
+
+        document.getElementById('pageConfirmCancelBtn')?.addEventListener('click', function () {
+            pendingPageConfirmForm = null;
+            closePageConfirmModal();
+        });
+
+        document.getElementById('pageConfirmProceedBtn')?.addEventListener('click', function () {
+            const form = pendingPageConfirmForm;
+            pendingPageConfirmForm = null;
+            closePageConfirmModal();
+            if (form) {
+                setTimeout(() => form.submit(), 50);
+            }
+        });
     </script>
 </body>
 </html>
