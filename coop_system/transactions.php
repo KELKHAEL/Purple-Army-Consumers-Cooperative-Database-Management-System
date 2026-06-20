@@ -941,15 +941,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
     <?php include 'cover_page.php'; ?>
 
-    <div id="customAlertModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4">
+    <div id="customAlertModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4 overflow-y-auto">
         <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity"></div>
         
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="customAlertBox">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="customAlertBox">
             <div id="customAlertHeader" class="px-6 py-4 flex items-center gap-3 border-b">
                 <i id="customAlertIcon" class="fas fa-exclamation-circle text-2xl"></i>
                 <h3 id="customAlertTitle" class="text-lg font-bold tracking-tight">Alert</h3>
             </div>
-            <div class="p-6 text-gray-600 text-sm leading-relaxed" id="customAlertMessage">
+            <div class="p-6 text-gray-600 text-sm leading-relaxed break-words" id="customAlertMessage">
                 </div>
             <div class="bg-gray-50 px-6 py-4 flex justify-end">
                 <button id="customAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
@@ -1212,10 +1212,24 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
                     <div class="space-y-5 p-4 md:p-6">
                         <?php if (!empty($transactions_by_type)): ?>
                             <?php foreach ($transactions_by_type as $type_name => $rows): ?>
+                                <?php
+                                    $type_total_amount = 0.0;
+                                    foreach ($rows as $type_row) {
+                                        $type_total_amount += (float)($type_row['amount'] ?? 0);
+                                    }
+                                ?>
                                 <section class="tx-group bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden" data-tx-type="<?= htmlspecialchars($type_name) ?>">
                                     <div class="bg-gray-50 px-5 py-4 border-b border-gray-200 flex items-center justify-between gap-3">
-                                        <h4 class="font-bold text-gray-800"><i class="fas fa-layer-group text-primary mr-2"></i><?= htmlspecialchars($type_name) ?></h4>
-                                        <span class="text-xs text-gray-500"><?= count($rows) ?> record(s)</span>
+                                        <div class="min-w-0">
+                                            <h4 class="font-bold text-gray-800 truncate"><i class="fas fa-layer-group text-primary mr-2"></i><?= htmlspecialchars($type_name) ?></h4>
+                                            <div class="mt-1 text-xs text-gray-500">
+                                                <?= count($rows) ?> record(s)
+                                            </div>
+                                        </div>
+                                        <div class="text-right shrink-0">
+                                            <div class="text-[11px] font-bold uppercase tracking-wider text-gray-500">Total Amount</div>
+                                            <div class="text-sm font-extrabold text-gray-900">₱<?= number_format($type_total_amount, 2) ?></div>
+                                        </div>
                                     </div>
                                     <div class="overflow-x-auto">
                                         <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">

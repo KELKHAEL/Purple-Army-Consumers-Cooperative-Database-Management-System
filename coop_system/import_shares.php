@@ -62,6 +62,39 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         return function_exists('mb_strtoupper') ? mb_strtoupper($value, 'UTF-8') : strtoupper($value);
     }
 
+    function buildShareMemberDisplayName($last, $first, $middle): string {
+        $pieces = [];
+        $last = trim((string)$last);
+        $first = trim(preg_replace('/\s+/u', ' ', trim((string)$first)));
+        $middle = trim((string)$middle);
+
+        if ($last !== '') {
+            $pieces[] = $last . ',';
+        }
+        if ($first !== '') {
+            $pieces[] = $first;
+        }
+        if ($middle !== '') {
+            $pieces[] = $middle;
+        }
+
+        return trim(preg_replace('/\s+/u', ' ', implode(' ', $pieces)));
+    }
+
+    function buildShareImportFingerprint(array $data): string {
+        return sha1(json_encode([
+            'transaction_date' => normalizeShareImportIdentifier($data['transaction_date'] ?? ''),
+            'member_id' => (int)($data['member_id'] ?? 0),
+            'member_name' => normalizeShareImportText($data['member_name'] ?? ''),
+            'transaction_type' => normalizeShareImportText($data['transaction_type'] ?? ''),
+            'share_payment_type_id' => (int)($data['share_payment_type_id'] ?? 0),
+            'amount' => number_format((float)($data['amount'] ?? 0), 2, '.', ''),
+            'items_details' => normalizeShareImportText($data['items_details'] ?? ''),
+            'invoice_no' => normalizeShareImportIdentifier($data['invoice_no'] ?? ''),
+            'payment_status' => normalizeShareImportText($data['payment_status'] ?? 'COMPLETED'),
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+    }
+
     // 3. DETECT HEADERS
     $excel_map = [];
     $start_row = 1;
@@ -123,11 +156,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     $summary = [
         'processed' => 0,
         'imported' => 0,
-        'unmatched' => 0,
+        'waiting' => 0,
         'ambiguous' => 0,
         'missing_required' => 0,
         'invalid_rows' => 0,
-        'duplicate' => 0,
         'details' => []
     ];
     $detail_limit = 12;
@@ -136,6 +168,51 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             $summary['details'][] = $message;
         }
     };
+
+    $relinked_waiting = 0;
+    $waiting_query = $conn->query("SELECT transaction_id, member_name FROM transactions WHERE (member_id IS NULL OR member_id = 0) AND UPPER(COALESCE(payment_status, '')) = 'WAITING'");
+    if ($waiting_query && !empty($member_rows)) {
+        while ($waiting_row = $waiting_query->fetch_assoc()) {
+            $waiting_name = normalizeShareImportText($waiting_row['member_name'] ?? '');
+            if ($waiting_name === '') {
+                continue;
+            }
+
+            $matched_member = null;
+            $matching_candidates = [];
+            foreach ($member_rows as $member_candidate) {
+                $candidate_name = buildShareMemberDisplayName(
+                    $member_candidate['last_name'] ?? '',
+                    $member_candidate['first_name'] ?? '',
+                    $member_candidate['middle_name'] ?? ''
+                );
+                if (normalizeShareImportText($candidate_name) === $waiting_name) {
+                    $matching_candidates[] = $member_candidate;
+                }
+            }
+
+            if (count($matching_candidates) === 1) {
+                $matched_member = $matching_candidates[0];
+            }
+
+            if ($matched_member !== null) {
+                $waiting_id = (int)$waiting_row['transaction_id'];
+                $waiting_member_id = (int)$matched_member['member_id'];
+                $waiting_member_name = buildShareMemberDisplayName(
+                    $matched_member['last_name'] ?? '',
+                    $matched_member['first_name'] ?? '',
+                    $matched_member['middle_name'] ?? ''
+                );
+                $relink_stmt = $conn->prepare("UPDATE transactions SET member_id = ?, member_name = ?, payment_status = 'COMPLETED' WHERE transaction_id = ?");
+                if ($relink_stmt) {
+                    $relink_stmt->bind_param("isi", $waiting_member_id, $waiting_member_name, $waiting_id);
+                    $relink_stmt->execute();
+                    $relink_stmt->close();
+                    $relinked_waiting++;
+                }
+            }
+        }
+    }
 
     $conn->begin_transaction();
     try {
@@ -233,24 +310,14 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                     } elseif (count($candidate_matches) > 1) {
                         $summary['ambiguous']++;
                         $append_detail("Row {$row_number}: ambiguous name match for '{$last}, {$first} {$second}'");
-                        continue;
                     } else {
-                        $summary['unmatched']++;
                         $reason = 'no member match';
                         if (!empty($match_notes)) {
                             $reason .= ' (' . implode(', ', $match_notes) . ')';
                         }
                         $append_detail("Row {$row_number}: {$reason} for '{$last}, {$first} {$second}'");
-                        continue;
                     }
                 }
-
-                $member_id = (int)$resolved_member['member_id'];
-                $member_last = trim((string)($resolved_member['last_name'] ?? ''));
-                $member_first = trim((string)($resolved_member['first_name'] ?? ''));
-                $member_middle = trim((string)($resolved_member['middle_name'] ?? ''));
-                $member_name = trim($member_last . ', ' . $member_first . ' ' . $member_middle);
-                $member_name = preg_replace('/\s+/', ' ', trim($member_name));
 
                 $t_date = parseDate($raw_date) ?: date('Y-m-d');
                 $resolved_type = function_exists('resolveSharePaymentType') ? resolveSharePaymentType($conn, $type) : null;
@@ -258,20 +325,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $share_payment_type_id = $resolved_type['id'] ?? null;
                 $status = 'COMPLETED';
                 $items_details = "Payment for " . $t_type;
+                $is_waiting = false;
+                $member_id = 0;
+                $member_name = '';
 
-                $check = $conn->prepare("SELECT transaction_id FROM transactions WHERE invoice_no = ? LIMIT 1");
-                if ($check) {
-                    $check->bind_param("s", $reference_no);
-                    $check->execute();
-                    $c_res = $check->get_result();
-                    if ($c_res && $c_res->num_rows > 0) {
-                        $summary['duplicate']++;
-                        $append_detail("Row {$row_number}: duplicate reference '{$reference_no}' already exists.");
-                        $check->close();
-                        continue;
+                if ($resolved_member !== null) {
+                    $member_id = (int)$resolved_member['member_id'];
+                    $member_last = trim((string)($resolved_member['last_name'] ?? ''));
+                    $member_first = trim((string)($resolved_member['first_name'] ?? ''));
+                    $member_middle = trim((string)($resolved_member['middle_name'] ?? ''));
+                    $member_name = buildShareMemberDisplayName($member_last, $member_first, $member_middle);
+                } else {
+                    $member_name = buildShareMemberDisplayName($last, $first, $middle);
+                    if ($member_name === '') {
+                        $member_name = trim(preg_replace('/\s+/', ' ', trim((string)$first . ' ' . (string)$middle . ' ' . (string)$last)));
                     }
-                    $check->close();
+                    $status = 'WAITING';
+                    $is_waiting = true;
                 }
+
+                $incoming_row = [
+                    'transaction_date' => $t_date,
+                    'member_id' => $member_id,
+                    'member_name' => $member_name,
+                    'transaction_type' => $t_type,
+                    'share_payment_type_id' => $share_payment_type_id ?? 0,
+                    'amount' => $amount,
+                    'items_details' => $items_details,
+                    'invoice_no' => $reference_no,
+                    'payment_status' => $status,
+                ];
 
                 $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
                 if (!$ins) {
@@ -281,6 +364,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $ins->execute();
                 $ins->close();
                 $summary['imported']++;
+                if ($is_waiting) {
+                    $summary['waiting']++;
+                    $append_detail("Row {$row_number}: stored on waiting list for unmatched member '{$last}, {$first} {$middle}'.");
+                }
             } catch (Throwable $rowError) {
                 $summary['invalid_rows']++;
                 $append_detail("Row " . ($i + 1) . ': ' . $rowError->getMessage());
@@ -292,7 +379,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
     } catch (Throwable $e) {
         $conn->rollback();
         $_SESSION['alert_title'] = "Import Error";
-        $_SESSION['alert_message'] = "Import stopped: " . htmlspecialchars($e->getMessage());
+        $_SESSION['alert_message'] = "Import stopped. " . htmlspecialchars($e->getMessage());
         $_SESSION['alert_type'] = "error";
         header("Location: member_shares.php");
         exit();
@@ -306,7 +393,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             'TRANSACTIONS',
             null,
             'Bulk Share / Fee Import',
-            'Processed ' . $summary['processed'] . ' row(s); imported ' . $summary['imported'] . '; unmatched ' . $summary['unmatched'] . '; ambiguous ' . $summary['ambiguous'] . '; missing required ' . $summary['missing_required'] . '; duplicates ' . $summary['duplicate'] . '.'
+            'Processed ' . $summary['processed'] . ' row(s); imported ' . $summary['imported'] . '; waiting ' . $summary['waiting'] . '; relinked waiting ' . $relinked_waiting . '; ambiguous ' . $summary['ambiguous'] . '; missing required ' . $summary['missing_required'] . '.'
         );
     }
 
@@ -324,10 +411,10 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         '<div class="text-left space-y-1">' .
         '<div><strong>Rows Processed:</strong> ' . (int)$summary['processed'] . '</div>' .
         '<div><strong>Successfully Imported:</strong> ' . (int)$summary['imported'] . '</div>' .
-        '<div><strong>Unmatched:</strong> ' . (int)$summary['unmatched'] . '</div>' .
+        '<div><strong>Waiting List:</strong> ' . (int)$summary['waiting'] . '</div>' .
+        '<div><strong>Relinked Waiting Rows:</strong> ' . (int)$relinked_waiting . '</div>' .
         '<div><strong>Ambiguous:</strong> ' . (int)$summary['ambiguous'] . '</div>' .
         '<div><strong>Missing Required:</strong> ' . (int)$summary['missing_required'] . '</div>' .
-        '<div><strong>Duplicates:</strong> ' . (int)$summary['duplicate'] . '</div>' .
         $detail_html .
         '</div>';
     $_SESSION['alert_type'] = ($summary['imported'] > 0) ? "success" : "error";

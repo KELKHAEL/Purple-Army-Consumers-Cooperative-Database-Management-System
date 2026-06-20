@@ -139,6 +139,97 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
         .sig-line { border-bottom: 1px solid #000; height: 20px; margin-bottom: 5px; }
         .sig-label { font-size: 12px; font-weight: bold; text-transform: uppercase; }
 
+        .history-mobile-backdrop {
+            display: none;
+        }
+
+        .transaction-history-panel.mobile-expanded {
+            position: fixed !important;
+            inset: 0 !important;
+            z-index: 80 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            max-height: none !important;
+            margin: 0 !important;
+            border-radius: 0 !important;
+            overflow-y: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            background: white !important;
+        }
+
+        .transaction-history-panel.mobile-expanded .history-mobile-backdrop {
+            display: block;
+        }
+
+        .transaction-history-panel.mobile-expanded #transactionHistoryList {
+            flex: 0 0 auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+        }
+
+        .transaction-history-panel.mobile-expanded .history-expand-trigger {
+            display: none !important;
+        }
+
+        .transaction-history-panel.mobile-expanded .history-collapse-trigger {
+            display: inline-flex !important;
+        }
+
+        @media (min-width: 1280px) {
+            .transaction-history-panel {
+                max-height: none !important;
+                height: auto !important;
+                position: static !important;
+                display: flex !important;
+                flex-direction: column !important;
+            }
+
+            #transactionHistoryList {
+                overflow: visible !important;
+                max-height: none !important;
+                flex: 0 0 auto !important;
+            }
+        }
+
+        @media (max-width: 767px) {
+            html, body {
+                height: auto !important;
+                min-height: 100% !important;
+                overflow-y: auto !important;
+            }
+
+            .flex.h-screen.w-full {
+                height: auto !important;
+                min-height: 100vh !important;
+            }
+
+            .main-content {
+                height: auto !important;
+                min-height: 100vh !important;
+                overflow: visible !important;
+            }
+
+            .scroll-wrapper {
+                overflow: visible !important;
+                min-height: 0 !important;
+            }
+
+            .a4-paper {
+                width: 100% !important;
+                min-height: 0 !important;
+                padding: 10mm !important;
+            }
+
+            .overflow-x-auto {
+                overflow-x: auto !important;
+            }
+
+            .transaction-history-panel {
+                max-height: none !important;
+            }
+        }
+
         /* HIDE UI ELEMENTS & PREVENT BLANK PAGES WHEN PRINTING */
         @media print {
             @page { size: A4 portrait; margin: 15mm; }
@@ -176,9 +267,11 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
         }
     </style>
 </head>
-<body class="bg-gray-100 text-gray-800 font-sans antialiased overflow-hidden">
+    <body class="bg-gray-100 text-gray-800 font-sans antialiased overflow-x-hidden">
 
     <?php include 'cover_page.php'; ?>
+
+    <div id="history-mobile-backdrop" class="history-mobile-backdrop fixed inset-0 bg-black bg-opacity-50 no-print" style="z-index: 70;" onclick="toggleTransactionHistoryMobile(false)"></div>
 
     <div class="flex h-screen w-full">
 
@@ -224,7 +317,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
             </nav>
         </aside>
 
-        <main class="main-content flex-1 flex flex-col h-screen overflow-hidden relative w-full">
+        <main class="main-content flex-1 flex flex-col h-screen overflow-hidden relative w-full min-h-0">
             
             <header class="bg-white shadow-sm px-4 md:px-8 py-4 flex justify-between items-center z-10 no-print">
                 <div class="flex items-center gap-4">
@@ -244,7 +337,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                 </div>
             </header>
 
-            <div class="scroll-wrapper flex-1 overflow-auto p-4 md:p-8 bg-gray-200 block">
+            <div class="scroll-wrapper flex-1 overflow-auto min-h-0 p-4 md:p-8 bg-gray-200 block scroll-smooth">
                 
                 <div class="flex flex-col xl:flex-row gap-8 justify-center items-start w-full max-w-[1400px] mx-auto">
                     
@@ -350,7 +443,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                         </div>
                     </div>
 
-                    <div class="w-full xl:w-[450px] shrink-0 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden no-print xl:sticky xl:top-8 mb-12 max-h-[calc(100vh-2rem)] flex flex-col">
+                    <div id="transaction-history-panel" class="transaction-history-panel w-full xl:w-[450px] shrink-0 bg-white rounded-2xl shadow-xl border border-gray-200 overflow-hidden no-print mb-12 min-h-0 xl:flex xl:flex-col">
                         
                         <?php
                             // Calculate Totals for this specific member
@@ -374,7 +467,15 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                                 <h4 class="font-bold text-lg"><i class="fas fa-receipt mr-2"></i> Transaction History</h4>
                                 <p class="text-purple-200 text-xs mt-1 uppercase"><?= htmlspecialchars($member['first_name'] . ' ' . $member['last_name']) ?></p>
                             </div>
-                            <span class="bg-purple-800 text-white px-3 py-1 rounded-full text-xs font-bold border border-purple-600 shadow-inner"><?= count($member_transactions) ?> Records</span>
+                            <div class="flex items-center gap-2">
+                                <span class="bg-purple-800 text-white px-3 py-1 rounded-full text-xs font-bold border border-purple-600 shadow-inner"><?= count($member_transactions) ?> Records</span>
+                                <button type="button" class="history-expand-trigger bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold border border-white/20 transition-colors" onclick="toggleTransactionHistoryMobile(true)">
+                                    View All
+                                </button>
+                                <button type="button" class="history-collapse-trigger hidden bg-white/10 hover:bg-white/20 text-white px-3 py-1 rounded-full text-xs font-bold border border-white/20 transition-colors" onclick="toggleTransactionHistoryMobile(false)">
+                                    Close
+                                </button>
+                            </div>
                         </div>
 
                         <div class="bg-purple-50 p-4 border-b border-purple-100 flex justify-between items-center relative z-10 shadow-sm">
@@ -388,7 +489,7 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                             </div>
                         </div>
 
-                        <div id="transactionHistoryList" class="p-5 flex-1 overflow-y-auto overscroll-contain flex flex-col gap-4 bg-gray-50">
+                        <div id="transactionHistoryList" class="p-5 flex-none min-h-0 overflow-visible overscroll-contain flex flex-col gap-4 bg-gray-50 pb-8">
                             <?php if (count($member_transactions) > 0): ?>
                                 <?php foreach($member_transactions as $trans): ?>
                                     <?php 
@@ -479,6 +580,23 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
             }
         }
 
+        function toggleTransactionHistoryMobile(forceOpen) {
+            const panel = document.getElementById('transaction-history-panel');
+            const backdrop = document.getElementById('history-mobile-backdrop');
+            if (!panel || !backdrop) return;
+
+            const shouldOpen = typeof forceOpen === 'boolean' ? forceOpen : !panel.classList.contains('mobile-expanded');
+
+            panel.classList.toggle('mobile-expanded', shouldOpen);
+            backdrop.style.display = shouldOpen ? 'block' : 'none';
+            document.body.style.overflow = shouldOpen ? 'hidden' : '';
+
+            if (shouldOpen) {
+                panel.scrollTop = 0;
+                window.scrollTo({ top: 0, behavior: 'instant' in window ? 'instant' : 'auto' });
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', function() {
             const list = document.getElementById('transactionHistoryList');
             if (!list) return;
@@ -526,6 +644,12 @@ $dob = !empty($member['date_of_birth']) ? date('F d, Y', strtotime($member['date
                 groupWrapper.appendChild(headerButton);
                 groupWrapper.appendChild(panel);
                 list.appendChild(groupWrapper);
+            });
+
+            window.addEventListener('resize', function() {
+                if (window.innerWidth >= 1280) {
+                    toggleTransactionHistoryMobile(false);
+                }
             });
         });
 

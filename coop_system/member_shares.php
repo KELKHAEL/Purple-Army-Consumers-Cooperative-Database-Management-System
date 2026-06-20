@@ -134,15 +134,33 @@ foreach ($share_rows as $row) {
 // Fetch Dashboard Stats specifically for Shares and Membership Fees
 $total_share_capital = 0;
 $total_membership_fees = 0;
+$total_share_logs = 0;
+$total_waiting_logs = 0;
+$total_completed_logs = 0;
+$total_share_capital_logs = 0;
+$total_membership_fee_logs = 0;
 $contributors = [];
 foreach ($share_rows as $row) {
+    $total_share_logs++;
     $display_type = strtolower((string)($row['share_type_name'] ?? $row['transaction_type'] ?? ''));
     $status = strtolower((string)($row['payment_status'] ?? ''));
-    if ($status === 'completed' || strpos($status, 'paid') !== false) {
+    $is_completed = ($status === 'completed' || strpos($status, 'paid') !== false);
+    $is_waiting = ($status === 'waiting');
+
+    if ($is_completed) {
+        $total_completed_logs++;
+    }
+    if ($is_waiting) {
+        $total_waiting_logs++;
+    }
+
+    if ($is_completed || $is_waiting) {
         if (strpos($display_type, 'share') !== false) {
             $total_share_capital += (float)$row['amount'];
+            $total_share_capital_logs++;
         } elseif (strpos($display_type, 'fee') !== false) {
             $total_membership_fees += (float)$row['amount'];
+            $total_membership_fee_logs++;
         }
     }
     if (!empty($row['member_id'])) {
@@ -389,14 +407,14 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
 
     <?php include 'cover_page.php'; ?>
 
-    <div id="customAlertModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4">
+    <div id="customAlertModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4 overflow-y-auto">
         <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity"></div>
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="customAlertBox">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[calc(100vh-2rem)] overflow-y-auto overflow-x-hidden transform transition-all z-10 flex flex-col translate-y-4 opacity-0" id="customAlertBox">
             <div id="customAlertHeader" class="px-6 py-4 flex items-center gap-3 border-b">
                 <i id="customAlertIcon" class="fas fa-exclamation-circle text-2xl"></i>
                 <h3 id="customAlertTitle" class="text-lg font-bold tracking-tight">Alert</h3>
             </div>
-            <div class="p-6 text-gray-600 text-sm leading-relaxed" id="customAlertMessage"></div>
+            <div class="p-6 text-gray-600 text-sm leading-relaxed break-words" id="customAlertMessage"></div>
             <div class="bg-gray-50 px-6 py-4 flex justify-end">
                 <button id="customAlertBtn" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-lg transition-colors shadow-md">OK</button>
             </div>
@@ -570,6 +588,30 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
             </header>
 
             <div class="flex-1 overflow-y-auto p-4 md:p-8">
+                <div class="bg-white rounded-xl shadow-sm border border-gray-200 p-4 mb-6 print:hidden">
+                    <div class="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                        <div class="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                            <div class="text-[11px] uppercase tracking-wider text-gray-500 font-bold">All Logs</div>
+                            <div class="text-2xl font-black text-gray-800 mt-1"><?= number_format($total_share_logs) ?></div>
+                        </div>
+                        <div class="rounded-lg border border-green-200 bg-green-50 p-3">
+                            <div class="text-[11px] uppercase tracking-wider text-green-700 font-bold">Share Capital Logs</div>
+                            <div class="text-2xl font-black text-green-700 mt-1"><?= number_format($total_share_capital_logs) ?></div>
+                        </div>
+                        <div class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                            <div class="text-[11px] uppercase tracking-wider text-blue-700 font-bold">Membership Fee Logs</div>
+                            <div class="text-2xl font-black text-blue-700 mt-1"><?= number_format($total_membership_fee_logs) ?></div>
+                        </div>
+                        <div class="rounded-lg border border-amber-200 bg-amber-50 p-3">
+                            <div class="text-[11px] uppercase tracking-wider text-amber-700 font-bold">Waiting Logs</div>
+                            <div class="text-2xl font-black text-amber-700 mt-1"><?= number_format($total_waiting_logs) ?></div>
+                        </div>
+                        <div class="rounded-lg border border-purple-200 bg-purple-50 p-3">
+                            <div class="text-[11px] uppercase tracking-wider text-primary font-bold">Completed Logs</div>
+                            <div class="text-2xl font-black text-primary mt-1"><?= number_format($total_completed_logs) ?></div>
+                        </div>
+                    </div>
+                </div>
                 
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 print:hidden">
                     <div class="bg-white rounded-xl shadow-sm border border-green-200 p-6 flex items-center justify-between border-l-4 border-l-green-500">
