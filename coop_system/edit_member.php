@@ -233,8 +233,8 @@ sort($civil_statuses);
                             </div>
 
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Date of Birth <span class="text-red-500">*</span></label>
-                                <input type="date" name="date_of_birth" value="<?= htmlspecialchars($member['date_of_birth'] ?? '') ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                                <input type="date" name="date_of_birth" value="<?= htmlspecialchars($member['date_of_birth'] ?? '') ?>" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
                             </div>
                             <div class="lg:col-span-2">
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Birth Place</label>
@@ -284,8 +284,8 @@ sort($civil_statuses);
                                     <input type="text" name="postal_code" value="<?= htmlspecialchars($member['postal_code'] ?? '') ?>" maxlength="4" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
                                 </div>
                                 <div class="md:col-span-3">
-                                    <label class="block text-sm font-medium text-gray-700 mb-1">Home Address <span class="text-red-500">*</span></label>
-                                    <input type="text" name="address" value="<?= htmlspecialchars($member['address'] ?? '') ?>" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Home Address</label>
+                                    <input type="text" name="address" value="<?= htmlspecialchars($member['address'] ?? '') ?>" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent transition-all">
                                 </div>
                             </div>
 

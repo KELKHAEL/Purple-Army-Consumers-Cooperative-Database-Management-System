@@ -16,6 +16,11 @@ if (empty($share_payment_types) && function_exists('getSharePaymentTypes')) {
     $share_payment_types = getSharePaymentTypes($conn, false);
 }
 
+$share_payment_methods = function_exists('getSharePaymentMethods') ? getSharePaymentMethods($conn, true) : [];
+if (empty($share_payment_methods) && function_exists('getSharePaymentMethods')) {
+    $share_payment_methods = getSharePaymentMethods($conn, false);
+}
+
 function getInventoryReceiptSetting(mysqli $conn, string $setting_key, string $default = ''): string {
     $stmt = $conn->prepare("SELECT setting_value FROM config_inventory_settings WHERE setting_key = ? LIMIT 1");
     if (!$stmt) {
@@ -35,10 +40,183 @@ function getInventoryReceiptSetting(mysqli $conn, string $setting_key, string $d
 $receipt_treasurer_name = getInventoryReceiptSetting($conn, 'receipt_treasurer_name', 'HELENA GESTA');
 $receipt_manager_name = getInventoryReceiptSetting($conn, 'receipt_manager_name', 'VRIAN ANDREW B. PORTUGUESE');
 
+function normalizeShareMemberLookupName(string $value): string {
+    $value = strtoupper(trim($value));
+    $value = preg_replace('/[^\pL\pN\s]/u', ' ', $value);
+    $value = preg_replace('/\s+/', ' ', $value);
+    return trim($value);
+}
+
+function buildShareMemberDisplayName(string $last, string $first, string $middle = ''): string {
+    $last = trim($last);
+    $first = trim($first);
+    $middle = trim($middle);
+
+    $name = $last . ', ' . $first;
+    if ($middle !== '') {
+        $name .= ' ' . $middle;
+    }
+
+    return preg_replace('/\s+/', ' ', trim($name));
+}
+
+function findMemberMatchByDisplayName(array $members, string $display_name): ?array {
+    $needle = normalizeShareMemberLookupName($display_name);
+    if ($needle === '') {
+        return null;
+    }
+
+    foreach ($members as $member) {
+        $candidate_display = buildShareMemberDisplayName(
+            (string)($member['last_name'] ?? ''),
+            (string)($member['first_name'] ?? ''),
+            (string)($member['middle_name'] ?? '')
+        );
+        if (normalizeShareMemberLookupName($candidate_display) === $needle) {
+            return $member;
+        }
+
+        $candidate_variants = [
+            normalizeShareMemberLookupName(trim((string)($member['first_name'] ?? '') . ' ' . (string)($member['middle_name'] ?? '') . ' ' . (string)($member['last_name'] ?? ''))),
+            normalizeShareMemberLookupName(trim((string)($member['first_name'] ?? '') . ' ' . (string)($member['last_name'] ?? ''))),
+            normalizeShareMemberLookupName(trim((string)($member['last_name'] ?? '') . ' ' . (string)($member['first_name'] ?? '') . ' ' . (string)($member['middle_name'] ?? ''))),
+        ];
+
+        if (in_array($needle, array_filter($candidate_variants), true)) {
+            return $member;
+        }
+    }
+
+    return null;
+}
+
+// Handle share log edits.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_share_record'])) {
+    $transaction_id = (int)($_POST['transaction_id'] ?? 0);
+    $member_name_input = trim((string)($_POST['member_name'] ?? ''));
+    $member_id = (int)($_POST['member_id'] ?? 0);
+    $share_type_id = (int)($_POST['share_payment_type_id'] ?? 0);
+    $payment_method = trim((string)($_POST['payment_method'] ?? 'Cash'));
+    $amount = (float)($_POST['amount'] ?? 0);
+    $share_date = !empty($_POST['share_date']) ? $_POST['share_date'] : date('Y-m-d');
+    $invoice_no = trim((string)($_POST['invoice_no'] ?? ''));
+    $payment_status = strtoupper(trim((string)($_POST['payment_status'] ?? 'COMPLETED')));
+
+    $stmt_existing = $conn->prepare("SELECT member_id, member_name FROM transactions WHERE transaction_id = ? LIMIT 1");
+    if ($stmt_existing) {
+        $stmt_existing->bind_param("i", $transaction_id);
+        $stmt_existing->execute();
+        $existing_res = $stmt_existing->get_result();
+        $existing_row = $existing_res ? $existing_res->fetch_assoc() : null;
+        $stmt_existing->close();
+    } else {
+        $existing_row = null;
+    }
+
+    $stmt_type = $conn->prepare("SELECT id, name FROM config_share_payment_types WHERE id = ? AND is_active = 1 LIMIT 1");
+    $stmt_type_row = null;
+    if ($stmt_type) {
+        $stmt_type->bind_param("i", $share_type_id);
+        $stmt_type->execute();
+        $type_res = $stmt_type->get_result();
+        $stmt_type_row = $type_res ? $type_res->fetch_assoc() : null;
+        $stmt_type->close();
+    }
+
+    $resolved_member = null;
+    if ($member_id > 0) {
+        foreach ($members as $member_candidate) {
+            if ((int)($member_candidate['member_id'] ?? 0) === $member_id) {
+                $resolved_member = $member_candidate;
+                break;
+            }
+        }
+    }
+    if ($resolved_member === null && $member_name_input !== '') {
+        $resolved_member = findMemberMatchByDisplayName($members, $member_name_input);
+    }
+
+    if ($transaction_id <= 0 || !$existing_row || !$stmt_type_row || $amount <= 0 || empty($share_date)) {
+        $_SESSION['alert_title'] = "Invalid Entry";
+        $_SESSION['alert_message'] = "Please provide a valid share record, payment type, amount, and date.";
+        $_SESSION['alert_type'] = "error";
+        header("Location: member_shares.php");
+        exit();
+    }
+
+    if ($resolved_member !== null) {
+        $member_id = (int)$resolved_member['member_id'];
+        $member_name_input = buildShareMemberDisplayName(
+            (string)($resolved_member['last_name'] ?? ''),
+            (string)($resolved_member['first_name'] ?? ''),
+            (string)($resolved_member['middle_name'] ?? '')
+        );
+    } elseif ($member_name_input === '' && !empty($existing_row['member_name'])) {
+        $member_name_input = (string)$existing_row['member_name'];
+    } elseif ($member_name_input === '' && !empty($existing_row['member_id'])) {
+        foreach ($members as $member_candidate) {
+            if ((int)($member_candidate['member_id'] ?? 0) === (int)$existing_row['member_id']) {
+                $member_name_input = buildShareMemberDisplayName(
+                    (string)($member_candidate['last_name'] ?? ''),
+                    (string)($member_candidate['first_name'] ?? ''),
+                    (string)($member_candidate['middle_name'] ?? '')
+                );
+                break;
+            }
+        }
+    }
+    if ($payment_method === '') {
+        $payment_method = 'Cash';
+    }
+
+    $transaction_type = $stmt_type_row['name'];
+    $items_details = 'Manual payment entry for ' . $transaction_type;
+    $share_payment_type_id = (int)$stmt_type_row['id'];
+
+    $stmt_update = $conn->prepare("UPDATE transactions SET transaction_date = ?, member_id = ?, member_name = ?, transaction_type = ?, share_payment_type_id = ?, payment_method = ?, amount = ?, items_details = ?, invoice_no = ?, payment_status = ? WHERE transaction_id = ?");
+    if ($stmt_update) {
+        $stmt_update->bind_param("sissisdsssi", $share_date, $member_id, $member_name_input, $transaction_type, $share_payment_type_id, $payment_method, $amount, $items_details, $invoice_no, $payment_status, $transaction_id);
+
+        if ($stmt_update->execute()) {
+            if (function_exists('logActivity')) {
+                logActivity(
+                    $conn,
+                    'SALES',
+                    'UPDATE MEMBER SHARE',
+                    'TRANSACTION',
+                    $transaction_id,
+                    $member_name_input,
+                    'Payment Type: ' . $transaction_type . ', Amount: ' . number_format($amount, 2) . ', Date: ' . $share_date
+                );
+            }
+
+            $_SESSION['alert_title'] = "Share Updated";
+            $_SESSION['alert_message'] = "The member share record was updated successfully.";
+            $_SESSION['alert_type'] = "success";
+            $_SESSION['show_share_receipt_print'] = 1;
+            $_SESSION['share_receipt_transaction_id'] = $transaction_id;
+        } else {
+            $_SESSION['alert_title'] = "Database Error";
+            $_SESSION['alert_message'] = "Unable to update the member share record.";
+            $_SESSION['alert_type'] = "error";
+        }
+
+        $stmt_update->close();
+    } else {
+        $_SESSION['alert_title'] = "Database Error";
+        $_SESSION['alert_message'] = "Unable to prepare the share update statement.";
+        $_SESSION['alert_type'] = "error";
+    }
+
+    header("Location: member_shares.php");
+    exit();
+}
+
 // Handle manual share entry.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) {
     $member_id = (int)($_POST['member_id'] ?? 0);
     $share_type_id = (int)($_POST['share_payment_type_id'] ?? 0);
+    $payment_method = trim((string)($_POST['payment_method'] ?? 'Cash'));
     $amount = (float)($_POST['amount'] ?? 0);
     $share_date = !empty($_POST['share_date']) ? $_POST['share_date'] : date('Y-m-d');
     $invoice_no = trim((string)($_POST['invoice_no'] ?? ''));
@@ -57,14 +235,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
     $type_row = $type_res ? $type_res->fetch_assoc() : null;
     $stmt_type->close();
 
-    if (!$member_row || !$type_row || $amount <= 0 || empty($share_date) || $invoice_no === '') {
+    if (!$member_row || !$type_row || $amount <= 0 || empty($share_date)) {
         $_SESSION['alert_title'] = "Invalid Entry";
-        $_SESSION['alert_message'] = "Please select a member, payment type, enter a valid amount, and provide a Reference No. / Invoice No. / Receipt No.";
+        $_SESSION['alert_message'] = "Please select a member, payment type, and enter a valid amount.";
         $_SESSION['alert_type'] = "error";
         header("Location: member_shares.php");
         exit();
     }
 
+    if ($payment_method === '') {
+        $payment_method = 'Cash';
+    }
     $member_name = trim($member_row['last_name'] . ', ' . $member_row['first_name'] . ' ' . ($member_row['middle_name'] ?? ''));
     $member_name = preg_replace('/\s+/', ' ', trim($member_name));
     $items_details = 'Manual payment entry for ' . $type_row['name'];
@@ -72,8 +253,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['add_share_record'])) 
     $share_payment_type_id = (int)$type_row['id'];
     $transaction_type = $type_row['name'];
 
-    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
-    $stmt->bind_param("sissidsss", $share_date, $member_id, $member_name, $transaction_type, $share_payment_type_id, $amount, $items_details, $invoice_no, $payment_status);
+    $stmt = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, payment_method, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
+    $stmt->bind_param("sissisdsss", $share_date, $member_id, $member_name, $transaction_type, $share_payment_type_id, $payment_method, $amount, $items_details, $invoice_no, $payment_status);
 
     if ($stmt->execute()) {
         if (function_exists('logActivity')) {
@@ -118,16 +299,49 @@ if ($share_result) {
 }
 
 $share_receipt_payloads = [];
+$share_edit_payloads = [];
 foreach ($share_rows as $row) {
     $share_receipt_payloads[(int)$row['transaction_id']] = [
         'transaction_date' => (string)($row['transaction_date'] ?? ''),
         'member_name' => (string)($row['member_name'] ?? ''),
         'transaction_type' => (string)($row['share_type_name'] ?? $row['transaction_type'] ?? ''),
+        'payment_method' => (string)($row['payment_method'] ?? ''),
         'invoice_no' => (string)($row['invoice_no'] ?? ''),
         'amount' => (float)($row['amount'] ?? 0),
         'payment_status' => (string)($row['payment_status'] ?? 'COMPLETED'),
         'treasurer_name' => $receipt_treasurer_name,
         'manager_name' => $receipt_manager_name,
+    ];
+    $share_edit_payloads[(int)$row['transaction_id']] = [
+        'transaction_id' => (int)($row['transaction_id'] ?? 0),
+        'transaction_date' => (string)($row['transaction_date'] ?? ''),
+        'member_id' => (int)($row['member_id'] ?? 0),
+        'member_name' => (string)($row['member_name'] ?? ''),
+        'transaction_type' => (string)($row['share_type_name'] ?? $row['transaction_type'] ?? ''),
+        'share_payment_type_id' => (int)($row['share_payment_type_id'] ?? 0),
+        'payment_method' => (string)($row['payment_method'] ?? ''),
+        'invoice_no' => (string)($row['invoice_no'] ?? ''),
+        'amount' => (float)($row['amount'] ?? 0),
+        'payment_status' => (string)($row['payment_status'] ?? 'COMPLETED'),
+    ];
+}
+
+$member_lookup_payloads = [];
+foreach ($members as $member) {
+    $member_lookup_payloads[] = [
+        'member_id' => (int)($member['member_id'] ?? 0),
+        'display_name' => buildShareMemberDisplayName(
+            (string)($member['last_name'] ?? ''),
+            (string)($member['first_name'] ?? ''),
+            (string)($member['middle_name'] ?? '')
+        ),
+        'normalized_name' => normalizeShareMemberLookupName(
+            buildShareMemberDisplayName(
+                (string)($member['last_name'] ?? ''),
+                (string)($member['first_name'] ?? ''),
+                (string)($member['middle_name'] ?? '')
+            )
+        ),
     ];
 }
 
@@ -222,15 +436,15 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
     $sheet = $spreadsheet->getActiveSheet();
     $sheet->setTitle('Share Import Template');
 
-    $sheet->mergeCells('A1:H1');
-    $sheet->mergeCells('A2:H2');
-    $sheet->mergeCells('A3:H3');
+    $sheet->mergeCells('A1:I1');
+    $sheet->mergeCells('A2:I2');
+    $sheet->mergeCells('A3:I3');
     $sheet->setCellValue('A1', 'Member Shares Import Template');
-    $sheet->setCellValue('A2', 'Required column: Reference No. / Invoice No. / Receipt No.');
+    $sheet->setCellValue('A2', 'Required column: Reference No. / Invoice No. / Receipt No. and Payment Method.');
     $sheet->setCellValue('A3', 'Replace the sample row with your own entries before importing.');
     $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(16);
     $sheet->getStyle('A1:A3')->getAlignment()->setHorizontal(\PhpOffice\PhpSpreadsheet\Style\Alignment::HORIZONTAL_CENTER);
-    $sheet->getStyle('A1:H3')->getFont()->setName('Arial')->setSize(12);
+    $sheet->getStyle('A1:I3')->getFont()->setName('Arial')->setSize(12);
 
     $headers = [
         'Date',
@@ -240,18 +454,19 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         'Middle Name',
         'Last Name',
         'Transaction Type',
+        'Payment Method',
         'Amount'
     ];
     $sheet->fromArray($headers, null, 'A5');
-    $sheet->getStyle('A5:H5')->getFont()->setBold(true);
-    $sheet->getStyle('A5:H5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3E8FF');
+    $sheet->getStyle('A5:I5')->getFont()->setBold(true);
+    $sheet->getStyle('A5:I5')->getFill()->setFillType(\PhpOffice\PhpSpreadsheet\Style\Fill::FILL_SOLID)->getStartColor()->setARGB('FFF3E8FF');
 
     $sheet->fromArray([
-        [date('Y-m-d'), 'REF-0001', 'Juan', '', 'D.', 'Cruz', 'Share Capital', 100.00]
+        [date('Y-m-d'), 'REF-0001', 'Juan', '', 'D.', 'Cruz', 'Share Capital', 'Cash', 100.00]
     ], null, 'A6');
-    $sheet->getStyle('H6')->getNumberFormat()->setFormatCode('#,##0.00');
+    $sheet->getStyle('I6')->getNumberFormat()->setFormatCode('#,##0.00');
 
-    foreach (range('A', 'H') as $column) {
+    foreach (range('A', 'I') as $column) {
         $sheet->getColumnDimension($column)->setAutoSize(true);
     }
 
@@ -512,6 +727,15 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                         <?php endforeach; ?>
                     </select>
                 </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Payment Method <span class="text-red-500">*</span></label>
+                    <select name="payment_method" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        <option value="" selected disabled>Select Payment Method</option>
+                        <?php foreach ($share_payment_methods as $method): ?>
+                            <option value="<?= htmlspecialchars($method['name']) ?>"><?= htmlspecialchars($method['name']) ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Amount <span class="text-red-500">*</span></label>
@@ -524,13 +748,88 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                 </div>
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Reference No. / Invoice No. / Receipt No. <span class="text-red-500">*</span></label>
-                    <input type="text" name="invoice_no" required placeholder="Enter reference number" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                    <input type="text" name="invoice_no" placeholder="Enter reference number (optional)" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
                 </div>
                 <div class="flex justify-end gap-3 pt-2">
                     <button type="button" onclick="closeShareModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
                     <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-md text-sm transition-colors shadow-md">SAVE SHARE</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <datalist id="shareMemberOptions">
+        <?php foreach ($members as $member): ?>
+            <option value="<?= htmlspecialchars(trim($member['last_name'] . ', ' . $member['first_name'] . ' ' . ($member['middle_name'] ?? ''))) ?>"></option>
+        <?php endforeach; ?>
+    </datalist>
+
+    <div id="shareEditModal" class="fixed inset-0 z-[1000] hidden items-center justify-center p-4 print:hidden">
+        <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm" onclick="closeShareEditModal()"></div>
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl z-10 overflow-hidden transform transition-all max-h-[90vh] flex flex-col">
+            <div class="bg-gray-50 px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+                <div>
+                    <h3 class="font-bold text-gray-800"><i class="fas fa-pen-to-square text-primary mr-2"></i>Edit Member Share</h3>
+                    <p class="text-xs text-gray-500 mt-1">Update the record and match the member name in real time.</p>
+                </div>
+                <button type="button" onclick="closeShareEditModal()" class="text-gray-400 hover:text-gray-600"><i class="fas fa-times"></i></button>
+            </div>
+            <div class="overflow-y-auto p-6">
+                <form action="member_shares.php" method="POST" class="space-y-4">
+                    <input type="hidden" name="update_share_record" value="1">
+                    <input type="hidden" name="transaction_id" id="editTransactionId" value="">
+                    <input type="hidden" name="member_id" id="editMemberId" value="">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Member Name</label>
+                        <input type="text" name="member_name" id="editMemberName" list="shareMemberOptions" autocomplete="off" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                        <p id="editMemberMatch" class="mt-1 text-xs font-semibold text-gray-500">Type a name to match an existing member.</p>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Payment Type <span class="text-red-500">*</span></label>
+                        <select name="share_payment_type_id" id="editShareType" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            <option value="" disabled>Select Payment Type</option>
+                            <?php foreach ($share_payment_types as $type): ?>
+                                <option value="<?= (int)$type['id'] ?>"><?= htmlspecialchars($type['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Payment Method <span class="text-red-500">*</span></label>
+                        <select name="payment_method" id="editPaymentMethod" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            <option value="" disabled>Select Payment Method</option>
+                            <?php foreach ($share_payment_methods as $method): ?>
+                                <option value="<?= htmlspecialchars($method['name']) ?>"><?= htmlspecialchars($method['name']) ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Amount <span class="text-red-500">*</span></label>
+                            <input type="number" name="amount" id="editAmount" step="0.01" min="0.01" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Date <span class="text-red-500">*</span></label>
+                            <input type="date" name="share_date" id="editShareDate" required class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                        </div>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Reference No. / Invoice No. / Receipt No.</label>
+                        <input type="text" name="invoice_no" id="editInvoiceNo" placeholder="Enter reference number (optional)" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Status</label>
+                        <select name="payment_status" id="editPaymentStatus" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary bg-white">
+                            <option value="COMPLETED">COMPLETED</option>
+                            <option value="WAITING">WAITING</option>
+                            <option value="PAID">PAID</option>
+                        </select>
+                    </div>
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" onclick="closeShareEditModal()" class="bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold py-2 px-4 rounded-md text-sm transition-colors">CANCEL</button>
+                        <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-bold py-2 px-6 rounded-md text-sm transition-colors shadow-md">SAVE CHANGES</button>
+                    </div>
+                </form>
+            </div>
         </div>
     </div>
 
@@ -704,7 +1003,7 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                                     <th class="px-6 py-4 font-bold tracking-wider">Transaction Type</th>
                                     <th class="px-6 py-4 font-bold tracking-wider text-right">Amount (PHP)</th>
                                     <th class="px-6 py-4 font-bold tracking-wider text-center">Status</th>
-                                    <th class="px-6 py-4 font-bold tracking-wider text-center print:hidden">Receipt</th>
+                                    <th class="px-6 py-4 font-bold tracking-wider text-center print:hidden">Actions</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-gray-100" id="sharesTableBody">
@@ -740,9 +1039,14 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
                                                     <td class='px-6 py-4 font-black text-gray-900 text-right'>₱" . number_format($row['amount'], 2) . "</td>
                                                     <td class='px-6 py-4 text-center'>{$stat_badge}</td>
                                                     <td class='px-6 py-4 text-center print:hidden'>
-                                                        <button type='button' onclick='openShareReceiptPrint(" . (int)$row['transaction_id'] . ")' class='inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary transition-colors hover:bg-primary hover:text-white'>
-                                                            <i class='fas fa-receipt'></i> Print
-                                                        </button>
+                                                        <div class='flex flex-col items-center gap-2'>
+                                                            <button type='button' onclick='openShareReceiptPrint(" . (int)$row['transaction_id'] . ")' class='inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary transition-colors hover:bg-primary hover:text-white'>
+                                                                <i class='fas fa-receipt'></i> Print
+                                                            </button>
+                                                            <button type='button' onclick='openShareEditModal(" . (int)$row['transaction_id'] . ")' class='inline-flex items-center gap-2 rounded-md border border-amber-200 bg-amber-100 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-amber-800 transition-colors hover:bg-amber-500 hover:text-white'>
+                                                                <i class='fas fa-pen-to-square'></i> Edit
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                   </tr>";
                                         }
@@ -764,6 +1068,8 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
 
     <script>
         window.shareReceiptMap = <?= json_encode($share_receipt_payloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        window.shareEditMap = <?= json_encode($share_edit_payloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
+        window.memberLookup = <?= json_encode($member_lookup_payloads, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT) ?>;
 
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
@@ -780,6 +1086,88 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         function closeShareModal() {
             document.getElementById('shareModal').classList.add('hidden');
             document.getElementById('shareModal').classList.remove('flex');
+        }
+
+        function normalizeShareName(value) {
+            return String(value ?? '')
+                .toUpperCase()
+                .replace(/[^A-Z0-9\s]/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function findShareMemberMatchByName(value) {
+            const normalized = normalizeShareName(value);
+            if (!normalized) {
+                return null;
+            }
+
+            return (window.memberLookup || []).find(member => {
+                const variants = [
+                    member.normalized_name || '',
+                    normalizeShareName(member.display_name || ''),
+                ].filter(Boolean);
+                return variants.includes(normalized);
+            }) || null;
+        }
+
+        function updateShareMemberMatch() {
+            const nameInput = document.getElementById('editMemberName');
+            const memberIdInput = document.getElementById('editMemberId');
+            const matchEl = document.getElementById('editMemberMatch');
+            if (!nameInput || !memberIdInput || !matchEl) {
+                return;
+            }
+
+            const matched = findShareMemberMatchByName(nameInput.value);
+            if (matched) {
+                memberIdInput.value = matched.member_id || '';
+                matchEl.textContent = 'Matched member: ' + (matched.display_name || '') + ' (#' + (matched.member_id || '') + ')';
+                matchEl.className = 'mt-1 text-xs font-semibold text-green-600';
+            } else {
+                memberIdInput.value = '';
+                matchEl.textContent = nameInput.value.trim()
+                    ? 'No exact match found yet. The record can still be saved.'
+                    : 'Type a name to match an existing member.';
+                matchEl.className = 'mt-1 text-xs font-semibold text-amber-600';
+            }
+        }
+
+        function openShareEditModal(transactionId) {
+            const data = window.shareEditMap?.[transactionId];
+            if (!data) {
+                return;
+            }
+
+            const modal = document.getElementById('shareEditModal');
+            if (!modal) {
+                return;
+            }
+
+            document.getElementById('editTransactionId').value = data.transaction_id || transactionId || '';
+            document.getElementById('editMemberName').value = data.member_name || '';
+            document.getElementById('editMemberId').value = data.member_id || '';
+            document.getElementById('editShareType').value = data.share_payment_type_id || '';
+            document.getElementById('editPaymentMethod').value = data.payment_method || '';
+            document.getElementById('editAmount').value = Number(data.amount || 0).toFixed(2);
+            document.getElementById('editShareDate').value = data.transaction_date || '';
+            document.getElementById('editInvoiceNo').value = data.invoice_no || '';
+            document.getElementById('editPaymentStatus').value = (data.payment_status || 'COMPLETED').toUpperCase();
+
+            updateShareMemberMatch();
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        function closeShareEditModal() {
+            const modal = document.getElementById('shareEditModal');
+            if (!modal) {
+                return;
+            }
+
+            modal.classList.add('hidden');
+            modal.classList.remove('flex');
         }
 
         function formatShareReceiptDate(value) {
@@ -906,6 +1294,10 @@ if (isset($_GET['template']) && $_GET['template'] === 'excel') {
         document.getElementById('shareTypeFilter').addEventListener('change', filterShareRows);
         document.getElementById('shareDateStart').addEventListener('change', filterShareRows);
         document.getElementById('shareDateEnd').addEventListener('change', filterShareRows);
+        const editMemberNameInput = document.getElementById('editMemberName');
+        if (editMemberNameInput) {
+            editMemberNameInput.addEventListener('input', updateShareMemberMatch);
+        }
 
         function clearShareFilters() {
             document.getElementById('shareSearch').value = '';

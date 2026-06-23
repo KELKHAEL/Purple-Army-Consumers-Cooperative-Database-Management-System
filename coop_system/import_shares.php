@@ -23,6 +23,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         'middle_name' => ['membermiddlename', 'middlename'],
         'last_name'   => ['memberlastname', 'lastname'],
         'type'        => ['transactiontype', 'type'],
+        'payment_method' => ['paymentmethod', 'payment method', 'method'],
         'amount'      => ['paymentamount', 'payment', 'amount', 'total']
     ];
 
@@ -81,6 +82,30 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
         return trim(preg_replace('/\s+/u', ' ', implode(' ', $pieces)));
     }
 
+    function resolveShareImportPaymentMethod(mysqli $conn, string $input): string {
+        $label = normalizeShareImportText($input);
+        if ($label === '') {
+            $label = 'CASH';
+        }
+
+        $methods = [];
+        if (function_exists('getSharePaymentMethods')) {
+            $methods = getSharePaymentMethods($conn, true);
+            if (empty($methods)) {
+                $methods = getSharePaymentMethods($conn, false);
+            }
+        }
+
+        foreach ($methods as $method) {
+            $candidate = normalizeShareImportText((string)($method['name'] ?? ''));
+            if ($candidate !== '' && $candidate === $label) {
+                return (string)$method['name'];
+            }
+        }
+
+        return $label;
+    }
+
     function buildShareImportFingerprint(array $data): string {
         return sha1(json_encode([
             'transaction_date' => normalizeShareImportIdentifier($data['transaction_date'] ?? ''),
@@ -88,6 +113,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
             'member_name' => normalizeShareImportText($data['member_name'] ?? ''),
             'transaction_type' => normalizeShareImportText($data['transaction_type'] ?? ''),
             'share_payment_type_id' => (int)($data['share_payment_type_id'] ?? 0),
+            'payment_method' => normalizeShareImportText($data['payment_method'] ?? ''),
             'amount' => number_format((float)($data['amount'] ?? 0), 2, '.', ''),
             'items_details' => normalizeShareImportText($data['items_details'] ?? ''),
             'invoice_no' => normalizeShareImportIdentifier($data['invoice_no'] ?? ''),
@@ -232,20 +258,15 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $middle = getVal($row, $excel_map, 'middle_name');
                 $last = getVal($row, $excel_map, 'last_name');
                 $type = getVal($row, $excel_map, 'type');
+                $payment_method = getVal($row, $excel_map, 'payment_method');
                 $amount = cleanNumber(getVal($row, $excel_map, 'amount'));
 
-                if (trim($raw_date . $reference_no . $excel_member_id . $excel_form_id . $first . $second . $middle . $last . $type . (string)$amount) === '') {
+                if (trim($raw_date . $reference_no . $excel_member_id . $excel_form_id . $first . $second . $middle . $last . $type . $payment_method . (string)$amount) === '') {
                     continue;
                 }
 
                 $summary['processed']++;
                 $row_number = $i + 1;
-
-                if ($reference_no === '') {
-                    $summary['missing_required']++;
-                    $append_detail("Row {$row_number}: missing Reference No. / Invoice No. / Receipt No.");
-                    continue;
-                }
 
                 if ($amount <= 0) {
                     $summary['missing_required']++;
@@ -323,6 +344,7 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                 $resolved_type = function_exists('resolveSharePaymentType') ? resolveSharePaymentType($conn, $type) : null;
                 $t_type = $resolved_type['name'] ?? ((stripos($type, 'share') !== false) ? 'Share Capital' : 'Membership Fee');
                 $share_payment_type_id = $resolved_type['id'] ?? null;
+                $payment_method_value = resolveShareImportPaymentMethod($conn, $payment_method);
                 $status = 'COMPLETED';
                 $items_details = "Payment for " . $t_type;
                 $is_waiting = false;
@@ -350,17 +372,18 @@ if ($_SERVER["REQUEST_METHOD"] == "POST" && isset($_FILES['excel_file'])) {
                     'member_name' => $member_name,
                     'transaction_type' => $t_type,
                     'share_payment_type_id' => $share_payment_type_id ?? 0,
+                    'payment_method' => $payment_method_value,
                     'amount' => $amount,
                     'items_details' => $items_details,
                     'invoice_no' => $reference_no,
                     'payment_status' => $status,
                 ];
 
-                $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
+                $ins = $conn->prepare("INSERT INTO transactions (transaction_date, member_id, member_name, transaction_type, share_payment_type_id, payment_method, amount, items_details, invoice_no, payment_status, downpayment, remaining_balance) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0)");
                 if (!$ins) {
                     throw new Exception('Unable to prepare transaction insert.');
                 }
-                $ins->bind_param("sissidsss", $t_date, $member_id, $member_name, $t_type, $share_payment_type_id, $amount, $items_details, $reference_no, $status);
+                $ins->bind_param("sissisdsss", $t_date, $member_id, $member_name, $t_type, $share_payment_type_id, $payment_method_value, $amount, $items_details, $reference_no, $status);
                 $ins->execute();
                 $ins->close();
                 $summary['imported']++;

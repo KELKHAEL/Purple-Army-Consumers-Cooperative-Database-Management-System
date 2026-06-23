@@ -29,6 +29,25 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     $occupation   = strtoupper(trim($_POST['occupation'] ?? ''));
     $income       = strtoupper(trim($_POST['monthly_income'] ?? ''));
 
+    $normalize_member_name = function (string $value): string {
+        $value = strtoupper(trim($value));
+        $value = preg_replace('/\s+/', ' ', $value);
+        return trim($value);
+    };
+
+    $build_member_display_name = function (string $last, string $first, string $middle = ''): string {
+        $last = trim($last);
+        $first = trim($first);
+        $middle = trim($middle);
+
+        $name = $last . ', ' . $first;
+        if ($middle !== '') {
+            $name .= ' ' . $middle;
+        }
+
+        return preg_replace('/\s+/', ' ', trim($name));
+    };
+
     // 2. Prepare the full SQL INSERT statement
     $stmt = $conn->prepare("INSERT INTO members (
         form_id, last_name, first_name, middle_name, date_of_birth, 
@@ -50,6 +69,43 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
     if ($stmt->execute()) {
         $last_inserted_member_id = $stmt->insert_id;
         $stmt->close();
+
+        // Relink waiting share/payment records that were stored before the member existed.
+        $new_member_name = $build_member_display_name($last_name, $first_name, $middle_name);
+        $normalized_new_member_name = $normalize_member_name($new_member_name);
+        $relinked_share_records = 0;
+
+        $waiting_stmt = $conn->prepare("
+            SELECT transaction_id, member_name
+            FROM transactions
+            WHERE (member_id IS NULL OR member_id = 0)
+              AND UPPER(COALESCE(payment_status, '')) = 'WAITING'
+              AND share_payment_type_id IS NOT NULL
+        ");
+        if ($waiting_stmt) {
+            $waiting_stmt->execute();
+            $waiting_res = $waiting_stmt->get_result();
+            $update_waiting_stmt = $conn->prepare("
+                UPDATE transactions
+                SET member_id = ?, member_name = ?, payment_status = 'COMPLETED'
+                WHERE transaction_id = ?
+            ");
+
+            if ($waiting_res && $update_waiting_stmt) {
+                while ($waiting_row = $waiting_res->fetch_assoc()) {
+                    $waiting_name = $normalize_member_name((string)($waiting_row['member_name'] ?? ''));
+                    if ($waiting_name !== '' && $waiting_name === $normalized_new_member_name) {
+                        $waiting_txn_id = (int)($waiting_row['transaction_id'] ?? 0);
+                        $update_waiting_stmt->bind_param("isi", $last_inserted_member_id, $new_member_name, $waiting_txn_id);
+                        $update_waiting_stmt->execute();
+                        $relinked_share_records++;
+                    }
+                }
+                $update_waiting_stmt->close();
+            }
+
+            $waiting_stmt->close();
+        }
 
         // 4. Process Beneficiaries (if any were added)
         if (!empty($_POST['ben_last_name'])) {
@@ -98,7 +154,9 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
 
         // CRITICAL FIX: Pass the success alert data securely via PHP Session
         $_SESSION['alert_title'] = "Success";
-        $_SESSION['alert_message'] = "The new member was successfully added to the database.";
+        $_SESSION['alert_message'] = $relinked_share_records > 0
+            ? "The new member was successfully added to the database. {$relinked_share_records} waiting share record(s) were linked automatically."
+            : "The new member was successfully added to the database.";
         $_SESSION['alert_type'] = "success";
         
         header("Location: index.php");

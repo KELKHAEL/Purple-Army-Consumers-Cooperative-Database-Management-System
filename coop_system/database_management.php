@@ -233,6 +233,36 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 if (function_exists('logActivity')) {
                     logActivity($conn, 'SETTINGS', 'ADD SHARE TYPE', 'CONFIG', $conn->insert_id, $new_name, 'Added or reactivated a share payment type.');
                 }
+            } elseif ($action === 'add_share_method' && !empty($_POST['new_share_method'])) {
+                $new_name = trim($_POST['new_share_method']);
+                $stmt = $conn->prepare("INSERT INTO config_share_payment_methods (name, is_active) VALUES (?, 1) ON DUPLICATE KEY UPDATE is_active = 1");
+                $stmt->bind_param("s", $new_name);
+                $stmt->execute();
+                $msg = "Member payment method saved successfully.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'ADD PAYMENT METHOD', 'CONFIG', $conn->insert_id, $new_name, 'Added or reactivated a member payment method.');
+                }
+            } elseif ($action === 'edit_share_method' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
+                $id = (int)$_POST['id'];
+                $before = $conn->query("SELECT name FROM config_share_payment_methods WHERE id = $id")->fetch_assoc();
+                $new_name = trim($_POST['edit_name']);
+                $stmt = $conn->prepare("UPDATE config_share_payment_methods SET name = ? WHERE id = ?");
+                $stmt->bind_param("si", $new_name, $id);
+                $stmt->execute();
+                $msg = "Member payment method updated.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'EDIT PAYMENT METHOD', 'CONFIG', $id, $new_name, dmAuditDetails(['table' => 'config_share_payment_methods', 'before' => ['name' => $before['name'] ?? ''], 'after' => ['name' => $new_name]]));
+                }
+            } elseif ($action === 'del_share_method' && isset($_POST['id'])) {
+                $id = (int)$_POST['id'];
+                $row = $conn->query("SELECT name FROM config_share_payment_methods WHERE id = $id")->fetch_assoc();
+                $stmt = $conn->prepare("UPDATE config_share_payment_methods SET is_active = 0 WHERE id = ?");
+                $stmt->bind_param("i", $id);
+                $stmt->execute();
+                $msg = "Member payment method deleted.";
+                if (function_exists('logActivity')) {
+                    logActivity($conn, 'SETTINGS', 'DELETE PAYMENT METHOD', 'CONFIG', $id, $row['name'] ?? '', 'Deactivated a member payment method.');
+                }
             } elseif ($action === 'edit_share_type' && isset($_POST['id']) && !empty($_POST['edit_name'])) {
                 $id = (int)$_POST['id'];
                 $before = $conn->query("SELECT name FROM config_share_payment_types WHERE id = $id")->fetch_assoc();
@@ -326,6 +356,13 @@ $share_type_res = $conn->query("SELECT id, name, is_active, created_at FROM conf
 if ($share_type_res && $share_type_res->num_rows > 0) {
     while ($row = $share_type_res->fetch_assoc()) {
         $share_payment_types[] = $row;
+    }
+}
+$share_payment_methods = [];
+$share_method_res = $conn->query("SELECT id, name, is_active, created_at FROM config_share_payment_methods ORDER BY is_active DESC, name ASC");
+if ($share_method_res && $share_method_res->num_rows > 0) {
+    while ($row = $share_method_res->fetch_assoc()) {
+        $share_payment_methods[] = $row;
     }
 }
 $transaction_types = function_exists('getTransactionTypes') ? getTransactionTypes($conn, false) : [];
@@ -1106,6 +1143,88 @@ if ($receipt_setting_res && $receipt_setting_res->num_rows > 0) {
                                         <i class="fas fa-save mr-2"></i>SAVE RECEIPT NAMES
                                     </button>
                                 </form>
+                            </div>
+                        </div>
+
+                        <div class="mt-6 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                            <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                <h3 class="font-bold text-gray-800"><i class="fas fa-wallet text-primary mr-2"></i>Member Payment Methods</h3>
+                                <span class="text-xs text-gray-500"><?= count($share_payment_methods) ?> item(s)</span>
+                            </div>
+                            <div class="grid grid-cols-1 xl:grid-cols-3 gap-6 p-4">
+                                <div class="bg-white rounded-xl border border-gray-200">
+                                    <div class="p-4 border-b border-gray-100 bg-gray-50 rounded-t-xl flex justify-between items-center">
+                                        <h3 class="font-bold text-gray-800"><i class="fas fa-plus text-primary mr-2"></i>Add Payment Method</h3>
+                                        <span class="text-xs bg-purple-100 text-primary px-2 py-1 rounded font-semibold border border-purple-200">Configurable</span>
+                                    </div>
+                                    <form method="POST" class="p-4 space-y-4">
+                                        <input type="hidden" name="action" value="add_share_method">
+                                        <div>
+                                            <label class="block text-sm font-medium text-gray-700 mb-1">New Method</label>
+                                            <input type="text" name="new_share_method" required placeholder="e.g. Cash, GCash, Downpayment" class="w-full rounded-md border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary">
+                                        </div>
+                                        <button type="submit" class="bg-primary hover:bg-primaryDark text-white font-semibold py-2 px-4 rounded-md text-sm transition-colors shadow-sm">
+                                            <i class="fas fa-plus mr-2"></i>ADD METHOD
+                                        </button>
+                                    </form>
+                                </div>
+
+                                <div class="xl:col-span-2 bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                                    <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                                        <h3 class="font-bold text-gray-800"><i class="fas fa-list-ul text-primary mr-2"></i>Existing Payment Methods</h3>
+                                        <span class="text-xs text-gray-500"><?= count($share_payment_methods) ?> item(s)</span>
+                                    </div>
+                                    <div class="overflow-x-auto">
+                                        <table class="w-full text-sm text-left text-gray-600 whitespace-nowrap">
+                                            <thead class="text-xs text-gray-500 uppercase bg-gray-50 border-b border-gray-200">
+                                                <tr>
+                                                    <th class="px-4 py-3 font-bold tracking-wider">Name</th>
+                                                    <th class="px-4 py-3 font-bold tracking-wider">Status</th>
+                                                    <th class="px-4 py-3 font-bold tracking-wider text-right">Actions</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody class="divide-y divide-gray-100">
+                                                <?php if (!empty($share_payment_methods)): ?>
+                                                    <?php foreach ($share_payment_methods as $method): ?>
+                                                        <tr class="hover:bg-purple-50 transition-colors">
+                                                            <td class="px-4 py-3 font-semibold text-gray-800">
+                                                                <div id="view_method_<?= (int)$method['id'] ?>" class="flex items-center justify-between gap-3">
+                                                                    <span><?= htmlspecialchars($method['name']) ?></span>
+                                                                    <button type="button" onclick="toggleEdit('method_<?= (int)$method['id'] ?>')" class="text-blue-500 hover:text-blue-700 transition-colors"><i class="fas fa-edit text-xs"></i></button>
+                                                                </div>
+                                                                <form method="POST" id="edit_method_<?= (int)$method['id'] ?>" class="hidden flex gap-2 mt-2">
+                                                                    <input type="hidden" name="action" value="edit_share_method">
+                                                                    <input type="hidden" name="id" value="<?= (int)$method['id'] ?>">
+                                                                    <input type="text" name="edit_name" value="<?= htmlspecialchars($method['name']) ?>" required class="flex-1 rounded border border-gray-300 px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary">
+                                                                    <button type="button" onclick="toggleEdit('method_<?= (int)$method['id'] ?>')" class="text-gray-400 hover:text-gray-600 transition-colors"><i class="fas fa-times"></i></button>
+                                                                    <button type="submit" class="bg-primary hover:bg-primaryDark text-white text-xs font-bold px-3 rounded">SAVE</button>
+                                                                </form>
+                                                            </td>
+                                                            <td class="px-4 py-3">
+                                                                <?php if ((int)$method['is_active'] === 1): ?>
+                                                                    <span class="bg-green-100 text-green-800 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-green-200">ACTIVE</span>
+                                                                <?php else: ?>
+                                                                    <span class="bg-gray-100 text-gray-600 px-2.5 py-1 rounded text-[10px] font-bold uppercase border border-gray-200">INACTIVE</span>
+                                                                <?php endif; ?>
+                                                            </td>
+                                                            <td class="px-4 py-3 text-right">
+                                                                <form method="POST" class="inline m-0" onsubmit="return openConfirmModal('Delete this payment method? Existing records will remain saved.');">
+                                                                    <input type="hidden" name="action" value="del_share_method">
+                                                                    <input type="hidden" name="id" value="<?= (int)$method['id'] ?>">
+                                                                    <button type="submit" class="bg-white hover:bg-red-50 text-red-600 border border-red-200 font-semibold py-1 px-3 rounded shadow-sm text-xs transition-colors">DELETE</button>
+                                                                </form>
+                                                            </td>
+                                                        </tr>
+                                                    <?php endforeach; ?>
+                                                <?php else: ?>
+                                                    <tr>
+                                                        <td colspan="3" class="px-4 py-8 text-center text-gray-500">No member payment methods configured yet.</td>
+                                                    </tr>
+                                                <?php endif; ?>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>

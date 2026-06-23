@@ -55,6 +55,22 @@ if ($conn instanceof mysqli) {
     ('Membership Fee', 1),
     ('Share Capital', 1)");
 
+// Configurable payment methods for member share entries.
+@$conn->query("CREATE TABLE IF NOT EXISTS config_share_payment_methods (
+    id INT(11) NOT NULL AUTO_INCREMENT,
+    name VARCHAR(100) NOT NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_share_payment_method_name (name),
+    KEY idx_share_payment_method_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci");
+
+@$conn->query("INSERT IGNORE INTO config_share_payment_methods (name, is_active) VALUES
+    ('Cash', 1),
+    ('GCash', 1),
+    ('Downpayment', 1)");
+
 // Configurable transaction types for manual transactions and reporting.
 @$conn->query("CREATE TABLE IF NOT EXISTS config_transaction_types (
     id INT(11) NOT NULL AUTO_INCREMENT,
@@ -90,6 +106,15 @@ if ($share_payment_type_index_check && $share_payment_type_index_check->num_rows
 }
 if (!$share_payment_type_index_exists) {
     @$conn->query("ALTER TABLE transactions ADD KEY idx_share_payment_type_id (share_payment_type_id)");
+}
+
+$share_payment_method_column_exists = false;
+$share_payment_method_column_check = @$conn->query("SHOW COLUMNS FROM transactions LIKE 'payment_method'");
+if ($share_payment_method_column_check && $share_payment_method_column_check->num_rows > 0) {
+    $share_payment_method_column_exists = true;
+}
+if (!$share_payment_method_column_exists) {
+    @$conn->query("ALTER TABLE transactions ADD COLUMN payment_method VARCHAR(100) NULL AFTER share_payment_type_id");
 }
 
 // Backfill legacy rows so older share records stay linked to the config table.
@@ -147,6 +172,26 @@ if (!function_exists('getSharePaymentTypes')) {
             }
         }
         return $types;
+    }
+}
+
+if (!function_exists('getSharePaymentMethods')) {
+    function getSharePaymentMethods(mysqli $conn, bool $activeOnly = true): array
+    {
+        $methods = [];
+        $sql = "SELECT id, name, is_active FROM config_share_payment_methods";
+        if ($activeOnly) {
+            $sql .= " WHERE is_active = 1";
+        }
+        $sql .= " ORDER BY is_active DESC, name ASC";
+
+        $res = $conn->query($sql);
+        if ($res && $res->num_rows > 0) {
+            while ($row = $res->fetch_assoc()) {
+                $methods[] = $row;
+            }
+        }
+        return $methods;
     }
 }
 
